@@ -228,7 +228,8 @@ void CudaFishEyePlaneSweep::deleteImage(int id)
 void CudaFishEyePlaneSweep::process(int refImgId)
 {
     // check if values are set
-    if (!(nearZ > 0 && farZ > 0 && numPlanes > 0))
+//      if (!(nearZ > 0 && farZ > 0 && numPlanes > 0))
+    if (!(numPlanes > 0))
     {
         PSL_THROW_EXCEPTION("Parameters not set properly")
     }
@@ -276,6 +277,18 @@ void CudaFishEyePlaneSweep::process(int refImgId)
             planes(i,0)(3) = 1.0/(maxD - i*dStep);
         }
         break;
+    }
+    case FISH_EYE_PLANE_SWEEP_PLANEMODE_UNIFORM_DEPTH_GROUND:
+    {
+      double step = (farZ - nearZ)/(numPlanes-1);
+
+      for (int i = 0; i < numPlanes; i++)
+      {
+        planes(i,0).setZero();
+        planes(i,0)(1) = -1;
+        planes(i,0)(3) = nearZ + i*step;
+      }
+      break;
     }
     }
 

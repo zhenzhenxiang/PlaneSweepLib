@@ -690,19 +690,24 @@ namespace PSL_CUDA
                 float xw = kother11*xmw + kother13;
                 float yw = kother22*ymw + kother23;
 
-                const float u = (xw+0.5f) / (float) srcImgWidth;
-                const float v = (yw+0.5f) / (float) srcImgHeight;
+                if (xw < 0 || xw > srcImgWidth || yw < 0 || yw > srcImgHeight)
+                    costAccumBuf(x,y) += 255;
+                else
+                {
+                    const float u = (xw+0.5f) / (float) srcImgWidth;
+                    const float v = (yw+0.5f) / (float) srcImgHeight;
 
-                const float1 pix = tex2D(planeSweepGrayscaleTexture, u, v);
+                    const float1 pix = tex2D(planeSweepGrayscaleTexture, u, v);
 
-                const float i = __saturatef(fabs(pix.x))*255;
+                    const float i = __saturatef(fabs(pix.x))*255;
 
-                // ad
-                float id = fabs((float)(refImg(x,y) - i));
-//                float id = fabs((float)(i));
+                    // ad
+                    float id = fabs((float)(refImg(x,y) - i));
+                    //                float id = fabs((float)(i));
 
-                // accumulate
-                costAccumBuf(x,y) += accumScale*id;
+                    // accumulate
+                    costAccumBuf(x,y) += accumScale*id;
+                }
             }
         }
 
@@ -1356,12 +1361,17 @@ namespace PSL_CUDA
             const float xw = kother11*xxw*lengthInv*zzzwInv + kother13;
             const float yw = kother22*yyw*lengthInv*zzzwInv + kother23;
 
-            const float u = (xw+0.5f) / (float) width;
-            const float v = (yw+0.5f) / (float) height;
+            if (xw < 0 || xw > width || yw < 0 || yw > height)
+                return 255;
+            else
+            {
+                const float u = (xw+0.5f) / (float) width;
+                const float v = (yw+0.5f) / (float) height;
 
-            const float1 pix = tex2D(planeSweepGrayscaleTexture, u, v);
+                const float1 pix = tex2D(planeSweepGrayscaleTexture, u, v);
 
-            return pix.x*255;
+                return pix.x*255;
+            }
         }
 
         __forceinline__ __device__ float computeZNCC(float normalizer, float ref, float refSqr, float other, float otherSqr, float prod)
