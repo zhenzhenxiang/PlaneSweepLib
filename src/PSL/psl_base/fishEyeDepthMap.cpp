@@ -149,6 +149,31 @@ void FishEyeDepthMap<T, U>::displayInvDepthColored(T minZ, T maxZ, int displayTi
     cv::waitKey(displayTime);
 }
 
+template <typename T, typename U>
+void FishEyeDepthMap<T, U>::getInvDepthColored(T minZ, T maxZ, cv::Mat& colInvDepth)
+{
+    colInvDepth = cv::Mat::zeros(height, width, CV_8UC3);
+
+     for (int y = 0; y < colInvDepth.rows; y++)
+     {
+         unsigned char* pixel = colInvDepth.ptr<unsigned char>(y);
+         for (int x = 0; x < colInvDepth.cols; ++x)
+         {
+             const T depth = (*this)(x,y);
+             if (depth > 0)
+             {
+                 int idx = (int) round(std::max((T) 0, std::min(1/depth - 1/maxZ, 1/minZ - 1/maxZ) / (1/minZ - 1/maxZ)) * (T) 255);
+
+                 pixel[0] = (int) round(colorMapJet[idx][2] * 255.0f);
+                 pixel[1] = (int) round(colorMapJet[idx][1] * 255.0f);
+                 pixel[2] = (int) round(colorMapJet[idx][0] * 255.0f);
+             }
+
+             pixel += 3;
+         }
+     }
+}
+
 
 template <typename T, typename U>
 T& FishEyeDepthMap<T, U>::operator() (int x, int y)

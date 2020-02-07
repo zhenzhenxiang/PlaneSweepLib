@@ -20,7 +20,7 @@
 #include <Eigen/Dense>
 #include <fstream>
 #include <psl_base/exception.h>
-#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/opencv.hpp>
 #include <psl_cudaBase/cudaFishEyeImageProcessor.h>
 #include <psl_stereo/cudaFishEyePlaneSweep.h>
 #include <boost/filesystem.hpp>
@@ -139,8 +139,8 @@ int main(int argc, char* argv[])
   PSL_CUDA::DeviceImage devImg;
   PSL_CUDA::CudaFishEyeImageProcessor cFEIP;
 
-  double minZ = 1.0;
-  double maxZ = 2.0;
+  double minZ = 1.5;
+  double maxZ = 1.7;
 
   makeOutputFolder("fisheyeTestResultsSaic");
 
@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
     cFEPS.setScale(1.0);
     cFEPS.setZRange(minZ, maxZ);
     cFEPS.setMatchWindowSize(9, 9);
-    cFEPS.setNumPlanes(300);
+    cFEPS.setNumPlanes(20);
     cFEPS.setOcclusionMode(PSL::FISH_EYE_PLANE_SWEEP_OCCLUSION_NONE);
     cFEPS.setPlaneGenerationMode(
         PSL::FISH_EYE_PLANE_SWEEP_PLANEMODE_UNIFORM_DEPTH_GROUND);
@@ -158,10 +158,10 @@ int main(int argc, char* argv[])
     cFEPS.setSubPixelInterpolationMode(
         PSL::FISH_EYE_PLANE_SWEEP_SUB_PIXEL_INTERP_INVERSE);
     cFEPS.enableOutputBestDepth();
-    cFEPS.enableOutputBestCosts(false);
+    cFEPS.enableOutputBestCosts();
     cFEPS.enableOuputUniquenessRatio(false);
-    cFEPS.enableOutputCostVolume(false);
-    cFEPS.enableSubPixel();
+    cFEPS.enableOutputCostVolume();
+    cFEPS.enableSubPixel(false);
 
     // undistort and add the images
     int refId = -1;
@@ -206,12 +206,23 @@ int main(int argc, char* argv[])
       fEDM = cFEPS.getBestDepth();
       cv::Mat refImage = cFEPS.downloadImage(refId);
 
+      PSL::Grid<float> bestCosts;
+      bestCosts = cFEPS.getBestCosts();
+      PSL::displayGridZSliceAsImage(bestCosts, 0, 10);
+
+//      PSL::Grid<float> costVolume;
+//      costVolume = cFEPS.getCostVolume();
+//      for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+//      {
+//        PSL::displayGridZSliceAsImage(costVolume, i, (float) 0.1, (float) 0.4, 10);
+//      }
+
       makeOutputFolder(
           "fisheyeTestResultsSaic/grayscaleZNCC/NoOcclusionHandling/");
       cv::imwrite(
           "fisheyeTestResultsSaic/grayscaleZNCC/NoOcclusionHandling/refImg.png",
           refImage);
-      float minDepth = 1.0;
+      float minDepth = 3.0;
       float maxDepth = 60.0;
       fEDM.saveInvDepthAsColorImage("fisheyeTestResultsSaic/grayscaleZNCC/"
                                     "NoOcclusionHandling/invDepthCol.png",
@@ -219,6 +230,32 @@ int main(int argc, char* argv[])
 
       cv::imshow("Reference Image", refImage);
       fEDM.displayInvDepthColored(minDepth, maxDepth, 100);
+
+      cv::Mat colInvDepth;
+      fEDM.getInvDepthColored(minDepth, maxDepth, colInvDepth);
+
+      // show depth on the edges
+      cv::Mat detectedEdges;
+      cv::blur(refImage, detectedEdges, cv::Size(3,3));
+      cv::Canny(detectedEdges, detectedEdges, 30.0, 100.0, 3);
+
+      cv::Mat edgeColInvDepth;
+      colInvDepth.copyTo(edgeColInvDepth, detectedEdges);
+
+      cv::Mat edgeOnColInvDepth;
+      cv::Mat invDetectedEdges =
+          cv::Mat::ones(detectedEdges.size(), detectedEdges.type()) * 255 - detectedEdges;
+      colInvDepth.copyTo(edgeOnColInvDepth, invDetectedEdges);
+
+      cv::imwrite("fisheyeTestResultsSaic/grayscaleZNCC/"
+                  "NoOcclusionHandling/edgeColInvDepth.png", edgeColInvDepth);
+      cv::imwrite("fisheyeTestResultsSaic/grayscaleZNCC/"
+                  "NoOcclusionHandling/edgeOnColInvDepth.png", edgeOnColInvDepth);
+
+      cv::imshow("detected edges", detectedEdges);
+      cv::imshow("invert depth of the edges", edgeColInvDepth);
+      cv::imshow("edges on the depth", edgeOnColInvDepth);
+
       cv::waitKey();
     }
   }

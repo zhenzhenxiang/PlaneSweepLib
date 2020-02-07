@@ -247,12 +247,13 @@ void CudaFishEyePlaneSweep::process(int refImgId)
         PSL_THROW_EXCEPTION(strstream.str().c_str());
     }
 
-    planes = Grid<Eigen::Vector4d>(numPlanes,1);
 
     switch(planeGenerationMode)
     {
     case FISH_EYE_PLANE_SWEEP_PLANEMODE_UNIFORM_DEPTH:
     {
+        planes = Grid<Eigen::Vector4d>(numPlanes, 1);
+
         double step = (farZ - nearZ)/(numPlanes-1);
 
         for (int i = 0; i < numPlanes; i++)
@@ -265,6 +266,8 @@ void CudaFishEyePlaneSweep::process(int refImgId)
     }
     case FISH_EYE_PLANE_SWEEP_PLANEMODE_UNIFORM_DISPARITY:
     {
+        planes = Grid<Eigen::Vector4d>(numPlanes, 1);
+
         double minD = 1.0/farZ;
         double maxD = 1.0/nearZ;
 
@@ -280,14 +283,49 @@ void CudaFishEyePlaneSweep::process(int refImgId)
     }
     case FISH_EYE_PLANE_SWEEP_PLANEMODE_UNIFORM_DEPTH_GROUND:
     {
-      double step = (farZ - nearZ)/(numPlanes-1);
+      // ground plane normal in world frame
+      Eigen::Vector3d nW;
+      nW << 0.0, 0.0, 1.0;
 
-      for (int i = 0; i < numPlanes; i++)
-      {
-        planes(i,0).setZero();
-        planes(i,0)(1) = -1;
-        planes(i,0)(3) = nearZ + i*step;
-      }
+      // rotatation range
+      double rollRange = 1.0 * M_PI / 180.0;
+      double pitchRange = 1.0 * M_PI / 180.0;
+      double numAngle = 4.0;
+
+      double stepRoll = rollRange / (numAngle - 1);
+      double stepPitch = pitchRange / (numAngle - 1);
+
+      planes = Grid<Eigen::Vector4d>(numPlanes * numAngle * numAngle, 1);
+      int cntPlane = 0;
+
+      for (int r = 0; r < numAngle; r++)
+        for (int p = 0; p < numAngle; p++)
+        {
+          // rotation
+          double roll = - rollRange / 2.0 + r * stepRoll;
+          double pitch = - pitchRange / 2.0 + p * stepPitch;
+
+          Eigen::Matrix3d R;
+          R = Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+              Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+
+          // transform to camera frame
+          Eigen::Vector3d nC;
+          nC = refImg.cam.getR() * R * nW;
+
+          double step = (farZ - nearZ)/(numPlanes-1);
+
+          for (int i = 0; i < numPlanes; i++)
+          {
+            planes(cntPlane,0)(0) = nC(0);
+            planes(cntPlane,0)(1) = nC(1);
+            planes(cntPlane,0)(2) = nC(2);
+            planes(cntPlane,0)(3) = nearZ + i*step;
+
+            cntPlane++;
+          }
+        }
+
       break;
     }
     }
@@ -805,6 +843,11 @@ FishEyeDepthMap<float, double> CudaFishEyePlaneSweep::getBestDepth()
 Grid<float> CudaFishEyePlaneSweep::getBestCosts()
 {
     return bestCosts;
+}
+
+Grid<float> CudaFishEyePlaneSweep::getCostVolume()
+{
+  return costVolume;
 }
 
 Grid<float> CudaFishEyePlaneSweep::getUniquenessRatios()

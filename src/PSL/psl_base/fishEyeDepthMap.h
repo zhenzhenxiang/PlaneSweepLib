@@ -50,6 +50,8 @@ namespace PSL
         void displayInvDepth(T minZ, T maxZ, int displayTime = 0, const char* windowName = "inverse depth map");
         void displayInvDepthColored(T minZ, T maxZ, int displayTime = 0, const char* windowName = "color coded inverse depth map");
 
+        void getInvDepthColored(T minZ, T maxZ, cv::Mat& colInvDepth);
+
         void saveInvDepthAsColorImage(std::string fileName, T minZ, T maxZ);
 
         // returns a point with homogeneous component 0 if depth is invalid
