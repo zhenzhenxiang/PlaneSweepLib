@@ -93,6 +93,17 @@ void CudaFishEyePlaneSweep::setZRange(double nearZ, double farZ)
     this->farZ = farZ;
 }
 
+void CudaFishEyePlaneSweep::setAngleRange(double rollRange, double pitchRange)
+{
+    this->rollRange = rollRange;
+    this->pitchRange = pitchRange;
+}
+
+void CudaFishEyePlaneSweep::setNumAngles(int num)
+{
+    this->numAngles = num;
+}
+
 void CudaFishEyePlaneSweep::setOcclusionMode(FishEyePlaneSweepOcclusionMode occlusionMode)
 {
     this->occlusionMode = occlusionMode;
@@ -287,44 +298,49 @@ void CudaFishEyePlaneSweep::process(int refImgId)
       Eigen::Vector3d nW;
       nW << 0.0, 0.0, 1.0;
 
-      // rotatation range
-      double rollRange = 1.0 * M_PI / 180.0;
-      double pitchRange = 1.0 * M_PI / 180.0;
-      double numAngle = 4.0;
+      double rollStep = rollRange / (numAngles - 1);
+      double pitchStep = pitchRange / (numAngles - 1);
 
-      double stepRoll = rollRange / (numAngle - 1);
-      double stepPitch = pitchRange / (numAngle - 1);
+      double depthStep = (farZ - nearZ)/(numPlanes-1);
 
-      planes = Grid<Eigen::Vector4d>(numPlanes * numAngle * numAngle, 1);
+      planes = Grid<Eigen::Vector4d>(numPlanes * numAngles * numAngles, 1);
       int cntPlane = 0;
 
-      for (int r = 0; r < numAngle; r++)
-        for (int p = 0; p < numAngle; p++)
-        {
-          // rotation
-          double roll = - rollRange / 2.0 + r * stepRoll;
-          double pitch = - pitchRange / 2.0 + p * stepPitch;
-
-          Eigen::Matrix3d R;
-          R = Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-              Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
-
-          // transform to camera frame
-          Eigen::Vector3d nC;
-          nC = refImg.cam.getR() * R * nW;
-
-          double step = (farZ - nearZ)/(numPlanes-1);
-
-          for (int i = 0; i < numPlanes; i++)
+      for (int i = 0; i < numPlanes; i++)
+        for (int r = 0; r < numAngles; r++)
+          for (int p = 0; p < numAngles; p++)
           {
+            // rotation
+            double roll = - rollRange / 2.0 + r * rollStep;
+            double pitch = - pitchRange / 2.0 + p * pitchStep;
+
+            Eigen::Matrix3d R;
+            R = Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+                Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+
+            // rotated normal in world frame
+            Eigen::Vector3d nRotatedW;
+            nRotatedW = R * nW;
+
+            // translated normal in world frame
+            double depthTransW = nearZ + i * depthStep;
+
+            // compute corresponding depth in camera frame
+            Eigen::Vector3d originCamInWorld = refImg.cam.getC();
+            double depthC = nRotatedW.transpose() * originCamInWorld + depthTransW;
+            depthC /= nRotatedW.norm();
+
+            // transform plane normal to camera frame
+            Eigen::Vector3d nC;
+            nC = refImg.cam.getR() * nRotatedW;
+
             planes(cntPlane,0)(0) = nC(0);
             planes(cntPlane,0)(1) = nC(1);
             planes(cntPlane,0)(2) = nC(2);
-            planes(cntPlane,0)(3) = nearZ + i*step;
+            planes(cntPlane,0)(3) = depthC;
 
             cntPlane++;
           }
-        }
 
       break;
     }

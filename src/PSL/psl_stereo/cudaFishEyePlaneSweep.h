@@ -131,6 +131,8 @@ namespace PSL
 
         // needs to be set prior to run
         void setZRange(double nearZ, double farZ);
+        void setAngleRange(double rollRange, double pitchRange);
+        void setNumAngles(int num);
         void setMatchWindowSize(int w, int h);
         void setNumPlanes(int num);
         void setOcclusionMode(FishEyePlaneSweepOcclusionMode occlusionMode);
@@ -169,6 +171,10 @@ namespace PSL
 
         double nearZ;
         double farZ;
+
+        double rollRange;
+        double pitchRange;
+        double numAngles;
 
         double scale;
 

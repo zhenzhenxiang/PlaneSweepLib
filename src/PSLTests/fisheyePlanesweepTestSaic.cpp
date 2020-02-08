@@ -139,18 +139,14 @@ int main(int argc, char* argv[])
   PSL_CUDA::DeviceImage devImg;
   PSL_CUDA::CudaFishEyeImageProcessor cFEIP;
 
-  double minZ = 1.5;
-  double maxZ = 1.7;
-
   makeOutputFolder("fisheyeTestResultsSaic");
 
   // Plane sweeping stereo
   {
     PSL::CudaFishEyePlaneSweep cFEPS;
     cFEPS.setScale(1.0);
-    cFEPS.setZRange(minZ, maxZ);
-    cFEPS.setMatchWindowSize(9, 9);
-    cFEPS.setNumPlanes(20);
+    cFEPS.setMatchWindowSize(30, 30);
+    cFEPS.setNumPlanes(5);
     cFEPS.setOcclusionMode(PSL::FISH_EYE_PLANE_SWEEP_OCCLUSION_NONE);
     cFEPS.setPlaneGenerationMode(
         PSL::FISH_EYE_PLANE_SWEEP_PLANEMODE_UNIFORM_DEPTH_GROUND);
@@ -163,8 +159,19 @@ int main(int argc, char* argv[])
     cFEPS.enableOutputCostVolume();
     cFEPS.enableSubPixel(false);
 
+    int refId = 0;
+
+    double groundDeltaRange = 0.3;
+    double minZ = - groundDeltaRange / 2.0;
+    double maxZ = groundDeltaRange / 2.0;
+    cFEPS.setZRange(minZ, maxZ);
+
+    double rollRange = 2.0 * M_PI / 180.0;
+    double pitchRange = 2.0 * M_PI / 180.0;
+    cFEPS.setAngleRange(rollRange, pitchRange);
+    cFEPS.setNumAngles(5);
+
     // undistort and add the images
-    int refId = -1;
     for (unsigned int i = 0; i < numCam; i++)
     {
       std::string imageFileName = dataFolder + "/" + imageFileNames[i];
@@ -191,11 +198,6 @@ int main(int argc, char* argv[])
       undistRes.first.download(undistImage);
 
       int id = cFEPS.addDeviceImage(undistRes.first, undistRes.second);
-
-      if (i == 0)
-      {
-        refId = id;
-      }
     }
 
     makeOutputFolder("fisheyeTestResultsSaic/grayscaleZNCC");
@@ -205,17 +207,18 @@ int main(int argc, char* argv[])
       PSL::FishEyeDepthMap<float, double> fEDM;
       fEDM = cFEPS.getBestDepth();
       cv::Mat refImage = cFEPS.downloadImage(refId);
+      cv::imshow("Reference Image", refImage);
 
       PSL::Grid<float> bestCosts;
       bestCosts = cFEPS.getBestCosts();
-      PSL::displayGridZSliceAsImage(bestCosts, 0, 10);
+      PSL::displayGridZSliceAsImage(bestCosts, 0, 0);
 
-//      PSL::Grid<float> costVolume;
-//      costVolume = cFEPS.getCostVolume();
-//      for (unsigned int i = 0; i < costVolume.getDepth(); i++)
-//      {
-//        PSL::displayGridZSliceAsImage(costVolume, i, (float) 0.1, (float) 0.4, 10);
-//      }
+      PSL::Grid<float> costVolume;
+      costVolume = cFEPS.getCostVolume();
+      for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+      {
+        PSL::displayGridZSliceAsImage(costVolume, i, 20);
+      }
 
       makeOutputFolder(
           "fisheyeTestResultsSaic/grayscaleZNCC/NoOcclusionHandling/");
@@ -228,7 +231,6 @@ int main(int argc, char* argv[])
                                     "NoOcclusionHandling/invDepthCol.png",
                                     minDepth, maxDepth);
 
-      cv::imshow("Reference Image", refImage);
       fEDM.displayInvDepthColored(minDepth, maxDepth, 100);
 
       cv::Mat colInvDepth;
