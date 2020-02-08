@@ -193,7 +193,7 @@ int main(int argc, char* argv[])
         cFEPS.setMatchingCosts(PSL::FISH_EYE_PLANE_SWEEP_SAD);
         cFEPS.setSubPixelInterpolationMode(PSL::FISH_EYE_PLANE_SWEEP_SUB_PIXEL_INTERP_INVERSE);
         cFEPS.enableOutputBestDepth();
-        cFEPS.enableOutputBestCosts(false);
+        cFEPS.enableOutputBestCosts(/*false*/);
         cFEPS.enableOuputUniquenessRatio(false);
         cFEPS.enableOutputCostVolume(false);
         cFEPS.enableSubPixel();
@@ -255,12 +255,16 @@ int main(int argc, char* argv[])
             fEDM = cFEPS.getBestDepth();
             cv::Mat refImage = cFEPS.downloadImage(refId);
 
+            PSL::Grid<float> bestCosts;
+            bestCosts = cFEPS.getBestCosts();
+            PSL::displayGridZSliceAsImage(bestCosts, 0, (float) 0.0, (float) 1000.0, 10);
+
             makeOutputFolder("fisheyeTestResults/grayscaleSAD/NoOcclusionHandling/");
             cv::imwrite("fisheyeTestResults/grayscaleSAD/NoOcclusionHandling/refImg.png",refImage);
             fEDM.saveInvDepthAsColorImage("fisheyeTestResults/grayscaleSAD/NoOcclusionHandling/invDepthCol.png", (float) minZ, (float) maxZ);
 
             cv::imshow("Reference Image", refImage);
-            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 100);
+            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 0);
         }
 
         {
@@ -270,12 +274,16 @@ int main(int argc, char* argv[])
             fEDM = cFEPS.getBestDepth();
             cv::Mat refImage = cFEPS.downloadImage(refId);
 
+            PSL::Grid<float> bestCosts;
+            bestCosts = cFEPS.getBestCosts();
+            PSL::displayGridZSliceAsImage(bestCosts, 0, (float) 0.0, (float) 1000.0, 10);
+
             makeOutputFolder("fisheyeTestResults/grayscaleSAD/RefSplit/");
             cv::imwrite("fisheyeTestResults/grayscaleSAD/RefSplit/refImg.png",refImage);
             fEDM.saveInvDepthAsColorImage("fisheyeTestResults/grayscaleSAD/RefSplit/invDepthCol.png", (float) minZ, (float) maxZ);
 
             cv::imshow("Reference Image", refImage);
-            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 100);
+            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 0);
         }
 
         makeOutputFolder("fisheyeTestResults/grayscaleZNCC");
@@ -288,12 +296,16 @@ int main(int argc, char* argv[])
             fEDM = cFEPS.getBestDepth();
             cv::Mat refImage = cFEPS.downloadImage(refId);
 
+            PSL::Grid<float> bestCosts;
+            bestCosts = cFEPS.getBestCosts();
+            PSL::displayGridZSliceAsImage(bestCosts, 0, 10);
+
             makeOutputFolder("fisheyeTestResults/grayscaleZNCC/NoOcclusionHandling/");
             cv::imwrite("fisheyeTestResults/grayscaleZNCC/NoOcclusionHandling/refImg.png",refImage);
             fEDM.saveInvDepthAsColorImage("fisheyeTestResults/grayscaleZNCC/NoOcclusionHandling/invDepthCol.png", (float) minZ, (float) maxZ);
 
             cv::imshow("Reference Image", refImage);
-            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 100);
+            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 0);
         }
 
         {
@@ -303,12 +315,16 @@ int main(int argc, char* argv[])
             fEDM = cFEPS.getBestDepth();
             cv::Mat refImage = cFEPS.downloadImage(refId);
 
+            PSL::Grid<float> bestCosts;
+            bestCosts = cFEPS.getBestCosts();
+            PSL::displayGridZSliceAsImage(bestCosts, 0, 10);
+
             makeOutputFolder("fisheyeTestResults/grayscaleZNCC/RefSplit/");
             cv::imwrite("fisheyeTestResults/grayscaleZNCC/RefSplit/refImg.png",refImage);
             fEDM.saveInvDepthAsColorImage("fisheyeTestResults/grayscaleZNCC/RefSplit/invDepthCol.png", (float) minZ, (float) maxZ);
 
             cv::imshow("Reference Image", refImage);
-            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 100);
+            fEDM.displayInvDepthColored((float) minZ, (float) maxZ, 0);
         }
 
         // now the remaining images are added and best K occlusion handling is performed
