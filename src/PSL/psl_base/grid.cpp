@@ -61,7 +61,11 @@ namespace PSL
     void displayGridZSliceAsImage(Grid<Elem>& grid, unsigned int z, Elem minVal, Elem maxVal,  long time, const char* windowName)
     {
         cv::Mat_<Elem> sliceMat(grid.getHeight(), grid.getWidth(), &grid(0,0,z));
-        cv::Mat_<Elem> sliceMat2 = sliceMat - minVal;
+        cv::Mat rangeMask = (sliceMat > minVal) & (sliceMat < maxVal);
+
+        cv::Mat_<Elem> sliceMat2;
+        sliceMat.copyTo(sliceMat2, rangeMask);
+        sliceMat2 -= minVal;
 
         cv::imshow(windowName, sliceMat2/(maxVal-minVal));
         cv::waitKey(time);
