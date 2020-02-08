@@ -195,7 +195,7 @@ int main(int argc, char* argv[])
         cFEPS.enableOutputBestDepth();
         cFEPS.enableOutputBestCosts(/*false*/);
         cFEPS.enableOuputUniquenessRatio(false);
-        cFEPS.enableOutputCostVolume(false);
+        cFEPS.enableOutputCostVolume(/*false*/);
         cFEPS.enableSubPixel();
 
         // undistort and add the images
@@ -259,6 +259,13 @@ int main(int argc, char* argv[])
             bestCosts = cFEPS.getBestCosts();
             PSL::displayGridZSliceAsImage(bestCosts, 0, (float) 0.0, (float) 1000.0, 10);
 
+            PSL::Grid<float> costVolume;
+            costVolume = cFEPS.getCostVolume();
+            for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+            {
+                PSL::displayGridZSliceAsImage(costVolume, i, (float) 0.0, (float) 1000.0, 20);
+            }
+
             makeOutputFolder("fisheyeTestResults/grayscaleSAD/NoOcclusionHandling/");
             cv::imwrite("fisheyeTestResults/grayscaleSAD/NoOcclusionHandling/refImg.png",refImage);
             fEDM.saveInvDepthAsColorImage("fisheyeTestResults/grayscaleSAD/NoOcclusionHandling/invDepthCol.png", (float) minZ, (float) maxZ);
@@ -277,6 +284,13 @@ int main(int argc, char* argv[])
             PSL::Grid<float> bestCosts;
             bestCosts = cFEPS.getBestCosts();
             PSL::displayGridZSliceAsImage(bestCosts, 0, (float) 0.0, (float) 1000.0, 10);
+
+            PSL::Grid<float> costVolume;
+            costVolume = cFEPS.getCostVolume();
+            for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+            {
+                PSL::displayGridZSliceAsImage(costVolume, i, (float) 0.0, (float) 1000.0, 20);
+            }
 
             makeOutputFolder("fisheyeTestResults/grayscaleSAD/RefSplit/");
             cv::imwrite("fisheyeTestResults/grayscaleSAD/RefSplit/refImg.png",refImage);
@@ -300,6 +314,13 @@ int main(int argc, char* argv[])
             bestCosts = cFEPS.getBestCosts();
             PSL::displayGridZSliceAsImage(bestCosts, 0, 10);
 
+            PSL::Grid<float> costVolume;
+            costVolume = cFEPS.getCostVolume();
+            for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+            {
+                PSL::displayGridZSliceAsImage(costVolume, i, 20);
+            }
+
             makeOutputFolder("fisheyeTestResults/grayscaleZNCC/NoOcclusionHandling/");
             cv::imwrite("fisheyeTestResults/grayscaleZNCC/NoOcclusionHandling/refImg.png",refImage);
             fEDM.saveInvDepthAsColorImage("fisheyeTestResults/grayscaleZNCC/NoOcclusionHandling/invDepthCol.png", (float) minZ, (float) maxZ);
@@ -318,6 +339,13 @@ int main(int argc, char* argv[])
             PSL::Grid<float> bestCosts;
             bestCosts = cFEPS.getBestCosts();
             PSL::displayGridZSliceAsImage(bestCosts, 0, 10);
+
+            PSL::Grid<float> costVolume;
+            costVolume = cFEPS.getCostVolume();
+            for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+            {
+                PSL::displayGridZSliceAsImage(costVolume, i, 20);
+            }
 
             makeOutputFolder("fisheyeTestResults/grayscaleZNCC/RefSplit/");
             cv::imwrite("fisheyeTestResults/grayscaleZNCC/RefSplit/refImg.png",refImage);
