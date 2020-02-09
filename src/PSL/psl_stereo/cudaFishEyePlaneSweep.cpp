@@ -213,6 +213,15 @@ int CudaFishEyePlaneSweep::addDeviceImage(PSL_CUDA::DeviceImage& image, FishEyeC
     return id;
 }
 
+void CudaFishEyePlaneSweep::updateDeviceImage(int id, PSL_CUDA::DeviceImage& image)
+{
+  CudaFishEyePlaneSweepImage cPSI;
+  cPSI.devImg = image;
+  cPSI.cam = images[id].cam;
+
+  images[id] = cPSI;
+}
+
 void CudaFishEyePlaneSweep::deleteImage(int id)
 {
 

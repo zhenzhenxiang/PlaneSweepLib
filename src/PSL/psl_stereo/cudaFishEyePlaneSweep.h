@@ -126,6 +126,7 @@ namespace PSL
 
         int addImage(cv::Mat image, FishEyeCameraMatrix<double>& cam);
         int addDeviceImage(PSL_CUDA::DeviceImage&, FishEyeCameraMatrix<double>& cam);
+        void updateDeviceImage(int id, PSL_CUDA::DeviceImage& image);
         void updateCameraMatrix(int id, FishEyeCameraMatrix<double>& cam);
         void deleteImage(int id);
 
