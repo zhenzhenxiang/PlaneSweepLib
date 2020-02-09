@@ -243,7 +243,12 @@ void FishEyeDepthMap<T, U>::pointCloudToVRML(std::ofstream& os, U maxDist)
     os << "           point [" << std::endl;
     for (unsigned int y = 0; y < height; y++)
         for (unsigned int x = 0; x < width; x++)
+        {
+            if (reprojPoints(x,y)(3) == 0)
+                continue;
+
             os << "               " << reprojPoints(x,y)(0) << " " << reprojPoints(x,y)(1) << " " << reprojPoints(x,y)(2) << "," << std::endl;
+        }
     os << "           ]" << std::endl;
     os << "       }" << std::endl;
     os << "   }" << std::endl;
@@ -288,7 +293,12 @@ void FishEyeDepthMap<T, U>::pointCloudColoredToVRML(std::ofstream& os, cv::Mat i
     os << "           point [" <<  std::endl;
     for (unsigned int y = 0; y < height; y++)
         for (unsigned int x = 0; x < width; x++)
+        {
+            if (reprojPoints(x,y)(3) == 0)
+                continue;
+
             os << "               " << reprojPoints(x,y)(0) << " " << reprojPoints(x,y)(1) << " " << reprojPoints(x,y)(2) << "," <<  std::endl;
+        }
     os << "           ]" <<  std::endl;
     os << "       }" <<  std::endl;
     os << "       color Color {" <<  std::endl;
@@ -298,6 +308,9 @@ void FishEyeDepthMap<T, U>::pointCloudColoredToVRML(std::ofstream& os, cv::Mat i
     for (unsigned int y = 0; y < height; y++)
         for (unsigned int x = 0; x < width; x++)
         {
+            if (reprojPoints(x,y)(3) == 0)
+                continue;
+
             os << "           " << image.at<unsigned char>(y,x)/255.0 << " " << image.at<unsigned char>(y,x)/255.0 << " " << image.at<unsigned char>(y,x)/255.0 << "," <<  std::endl;
         }
     }
@@ -306,6 +319,9 @@ void FishEyeDepthMap<T, U>::pointCloudColoredToVRML(std::ofstream& os, cv::Mat i
         for (unsigned int y = 0; y < height; y++)
             for (unsigned int x = 0; x < width; x++)
             {
+                if (reprojPoints(x,y)(3) == 0)
+                    continue;
+
                 os << "           " << image.at<unsigned char>(y,3*x+2)/255.0 << " " << image.at<unsigned char>(y,3*x+1)/255.0 << " " << image.at<unsigned char>(y,3*x)/255.0 << "," <<  std::endl;
             }
     }
@@ -368,6 +384,9 @@ void FishEyeDepthMap<T, U>::meshToVRML(std::ofstream& os, std::string textureIma
                 U dist = (reprojPoints(x,y).topRows(3) - cam.getC()).norm();
                 if (maxDist < dist)
                 {
+                    reprojPoints(x,y)(0) = 0;
+                    reprojPoints(x,y)(1) = 0;
+                    reprojPoints(x,y)(2) = 0;
                     reprojPoints(x,y)(3) = 0;
                 }
             }
