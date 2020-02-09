@@ -231,6 +231,14 @@ int main(int argc, char* argv[])
                                     "NoOcclusionHandling/invDepthCol.png",
                                     minDepth, maxDepth);
 
+      std::ofstream pointCloudFile("fisheyeTestResultsSaic/grayscaleZNCC/"
+                                   "NoOcclusionHandling/pointCloud.wrl");
+      fEDM.pointCloudColoredToVRML(pointCloudFile, refImage, maxDepth);
+
+      std::ofstream meshFile("fisheyeTestResultsSaic/grayscaleZNCC/"
+                                   "NoOcclusionHandling/mesh.wrl");
+      fEDM.meshToVRML(meshFile, "refImg.png", 1.0, -1, maxDepth);
+
       fEDM.displayInvDepthColored(minDepth, maxDepth, 100);
 
       cv::Mat colInvDepth;
