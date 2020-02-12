@@ -307,10 +307,10 @@ void CudaFishEyePlaneSweep::process(int refImgId)
       Eigen::Vector3d nW;
       nW << 0.0, 0.0, 1.0;
 
-      double rollStep = rollRange / (numAngles - 1);
-      double pitchStep = pitchRange / (numAngles - 1);
+      double rollStep = (numAngles == 1) ? 0.0 : rollRange / (numAngles - 1);
+      double pitchStep = (numAngles == 1) ? 0.0 : pitchRange / (numAngles - 1);
 
-      double depthStep = (farZ - nearZ)/(numPlanes-1);
+      double depthStep = (numPlanes == 1) ? 0.0 : (farZ - nearZ)/(numPlanes-1);
 
       planes = Grid<Eigen::Vector4d>(numPlanes * numAngles * numAngles, 1);
       int cntPlane = 0;
