@@ -49,6 +49,7 @@ CudaFishEyePlaneSweep::CudaFishEyePlaneSweep()
     outputBestDepthEnabled = true;
     outputBestCostsEnabled = false;
     outputCostVolumeEnabled = false;
+    outputBestPlanesEnabled = false;
     outputUniquenessRatioEnabled = false;
     subPixelEnabled = false;
 
@@ -147,6 +148,11 @@ void CudaFishEyePlaneSweep::enableOuputUniquenessRatio(bool enabled)
 void CudaFishEyePlaneSweep::enableOutputBestCosts(bool enabled)
 {
     outputBestCostsEnabled = enabled;
+}
+
+void CudaFishEyePlaneSweep::enableOutputBestPlanes(bool enabled)
+{
+  outputBestPlanesEnabled = enabled;
 }
 
 int CudaFishEyePlaneSweep::addImage(cv::Mat image, FishEyeCameraMatrix<double>& cam)
@@ -806,6 +812,13 @@ void CudaFishEyePlaneSweep::process(int refImgId, Grid<Eigen::Vector4d> &planes)
         uniqunessRatios = Grid<float>(bestPlaneCostBuffer.getWidth(), bestPlaneCostBuffer.getHeight());
         secondBestPlaneCostBuffer.download(uniqunessRatios.getDataPtr(), uniqunessRatios.getWidth()*sizeof(float));
     }
+
+    if (outputBestPlanesEnabled)
+    {
+        bestPlanes = Grid<int>(bestPlaneBuffer.getWidth(), bestPlaneBuffer.getHeight());
+        bestPlaneBuffer.download(bestPlanes.getDataPtr(), bestPlanes.getWidth()*sizeof(int));
+
+    }
 }
 
 void CudaFishEyePlaneSweep::planeRT(const Eigen::Matrix<double, 4, 1>& plane, const FishEyeCameraMatrix<double> &refCam, const FishEyeCameraMatrix<double> &otherCam, float* RT)
@@ -873,6 +886,21 @@ Grid<float> CudaFishEyePlaneSweep::getBestCosts()
 Grid<float> CudaFishEyePlaneSweep::getCostVolume()
 {
   return costVolume;
+}
+
+Grid<int> CudaFishEyePlaneSweep::getBestPlanes()
+{
+  return bestPlanes;
+}
+
+int CudaFishEyePlaneSweep::getNumPlanes()
+{
+  return numPlanes;
+}
+
+int CudaFishEyePlaneSweep::getNumAngles()
+{
+  return numAngles;
 }
 
 Grid<float> CudaFishEyePlaneSweep::getUniquenessRatios()

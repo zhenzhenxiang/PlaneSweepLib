@@ -157,12 +157,13 @@ int main(int argc, char* argv[])
     cFEPS.enableOutputBestCosts();
     cFEPS.enableOuputUniquenessRatio(false);
     cFEPS.enableOutputCostVolume();
+    cFEPS.enableOutputBestPlanes();
     cFEPS.enableSubPixel(false);
 
     int refId = 0;
 
     double groundDeltaRange = 0.3;
-    double minZ = - groundDeltaRange / 2.0;
+    double minZ = -groundDeltaRange / 2.0;
     double maxZ = groundDeltaRange / 2.0;
     cFEPS.setZRange(minZ, maxZ);
 
@@ -211,13 +212,32 @@ int main(int argc, char* argv[])
 
       PSL::Grid<float> bestCosts;
       bestCosts = cFEPS.getBestCosts();
-      PSL::displayGridZSliceAsImage(bestCosts, 0, 0);
+      PSL::displayGridZSliceAsImage(bestCosts, 0, 1, "Best Costs");
+
+      PSL::Grid<int> bestPlanes;
+      bestPlanes = cFEPS.getBestPlanes();
+      cv::Mat_<int> sliceMat(bestPlanes.getHeight(), bestPlanes.getWidth(),
+                             &bestPlanes(0, 0, 0));
+
+      float numPlanes =
+          cFEPS.getNumPlanes() * cFEPS.getNumAngles() * cFEPS.getNumAngles();
+      cv::Mat bestPlanesImage(bestPlanes.getHeight(), bestPlanes.getWidth(),
+                              CV_8UC1);
+      for (int r = 0; r < bestPlanes.getHeight(); r++)
+        for (int c = 0; c < bestPlanes.getWidth(); c++)
+        {
+          int planeInd = sliceMat.at<int>(r, c);
+          bestPlanesImage.at<uchar>(r, c) =
+              static_cast<uchar>(planeInd / numPlanes * 255.0);
+        }
+      cv::imshow("Best Planes Index", bestPlanesImage);
+      cv::waitKey(0);
 
       PSL::Grid<float> costVolume;
       costVolume = cFEPS.getCostVolume();
       for (unsigned int i = 0; i < costVolume.getDepth(); i++)
       {
-        PSL::displayGridZSliceAsImage(costVolume, i, 20);
+        PSL::displayGridZSliceAsImage(costVolume, i, 20, "Cost Volume");
       }
 
       makeOutputFolder(
@@ -246,7 +266,7 @@ int main(int argc, char* argv[])
 
       // show depth on the edges
       cv::Mat detectedEdges;
-      cv::blur(refImage, detectedEdges, cv::Size(3,3));
+      cv::blur(refImage, detectedEdges, cv::Size(3, 3));
       cv::Canny(detectedEdges, detectedEdges, 30.0, 100.0, 3);
 
       cv::Mat edgeColInvDepth;
@@ -254,13 +274,16 @@ int main(int argc, char* argv[])
 
       cv::Mat edgeOnColInvDepth;
       cv::Mat invDetectedEdges =
-          cv::Mat::ones(detectedEdges.size(), detectedEdges.type()) * 255 - detectedEdges;
+          cv::Mat::ones(detectedEdges.size(), detectedEdges.type()) * 255 -
+          detectedEdges;
       colInvDepth.copyTo(edgeOnColInvDepth, invDetectedEdges);
 
       cv::imwrite("fisheyeTestResultsSaic/grayscaleZNCC/"
-                  "NoOcclusionHandling/edgeColInvDepth.png", edgeColInvDepth);
+                  "NoOcclusionHandling/edgeColInvDepth.png",
+                  edgeColInvDepth);
       cv::imwrite("fisheyeTestResultsSaic/grayscaleZNCC/"
-                  "NoOcclusionHandling/edgeOnColInvDepth.png", edgeOnColInvDepth);
+                  "NoOcclusionHandling/edgeOnColInvDepth.png",
+                  edgeOnColInvDepth);
 
       cv::imshow("detected edges", detectedEdges);
       cv::imshow("invert depth of the edges", edgeColInvDepth);

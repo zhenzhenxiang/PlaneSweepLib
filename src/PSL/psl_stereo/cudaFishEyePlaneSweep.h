@@ -148,14 +148,17 @@ namespace PSL
         void enableOutputBestCosts(bool enabled = true);
         void enableOuputUniquenessRatio(bool enabled = true);
         void enableOutputCostVolume(bool enabled = true);
-        void enableOutputPlanes(bool enabled = true);
+        void enableOutputBestPlanes(bool enabled = true);
         void enableSubPixel(bool enabled = true);
 
         FishEyeDepthMap<float, double> getBestDepth();
         Grid<float> getBestCosts();
         Grid<float> getUniquenessRatios();
         Grid<float> getCostVolume();
+        Grid<int> getBestPlanes();
         Grid<Eigen::Vector4d> getPlanes();
+        int getNumPlanes();
+        int getNumAngles();
         FishEyeCameraMatrix<double> getRefImgCam();
 
         cv::Mat downloadImage(int id);
@@ -206,6 +209,7 @@ namespace PSL
          bool outputBestCostsEnabled;
          bool outputUniquenessRatioEnabled;
          bool outputCostVolumeEnabled;
+         bool outputBestPlanesEnabled;
          bool subPixelEnabled;
 
          FishEyePlaneSweepSubPixelInterpMode subPixelInterpMode;
@@ -215,6 +219,7 @@ namespace PSL
          Grid<float> bestCosts;
          Grid<float> uniqunessRatios;
          Grid<float> costVolume;
+         Grid<int> bestPlanes;
          Grid<Eigen::Vector4d> planes;
          FishEyeCameraMatrix<double> refImgCam;
 

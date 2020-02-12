@@ -1012,7 +1012,7 @@ namespace PSL_CUDA
             {
                 const int planeIdx = bestPlanes(x,y);
 
-                // apply Krefinv
+                // apply Krefinv^T
                 float mx = KrefInvCol1.x*x + KrefInvCol3.x;
                 float my = KrefInvCol2.y*y + KrefInvCol3.y;
 
