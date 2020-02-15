@@ -3,6 +3,8 @@ cmake_minimum_required (VERSION 2.6)
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CONFIGURATION_TYPES ${CMAKE_BUILD_TYPE} CACHE STRING "" FORCE)
 
+add_compile_options(-std=c++11)
+
 project(PSL)
 
 

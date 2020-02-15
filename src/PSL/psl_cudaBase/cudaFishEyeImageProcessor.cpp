@@ -75,7 +75,7 @@ std::pair<DeviceImage, PSL::FishEyeCameraMatrix<double> > CudaFishEyeImageProces
     CudaFishEyeImageProcessorDeviceCode::fishEyeImageProcessorUndistort(inputImg, outputImage, k1, k2, p1, p2,
                                                                         K(0,0), K(0,2), K(1,1), K(1,2), KnewInv(0,0), KnewInv(0,2), KnewInv(1,1), KnewInv(1,2));
 
-    return std::make_pair<DeviceImage, FishEyeCameraMatrix<double> >(outputImage, newCamera);
+    return std::make_pair(outputImage, newCamera);
 }
 
 DeviceImage CudaFishEyeImageProcessor::extractPinhole(double iScale, Eigen::Matrix3d& KPinhole, double k1, double k2, double p1, double p2)
