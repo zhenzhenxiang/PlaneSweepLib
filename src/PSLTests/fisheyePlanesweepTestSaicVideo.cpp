@@ -179,9 +179,31 @@ int main(int argc, char* argv[])
 
     // iterate frames
     int numFrame = 0;
+    int numSkip = 500;
     while (cv::waitKey(10) != 27)
     {
+      if (numFrame < numSkip)
+      {
+        for (unsigned int i = 0; i < numCam; i++)
+        {
+          cv::Mat imageOrig;
+          videoCaps[i] >> imageOrig;
+
+          if (imageOrig.empty())
+          {
+            std::cout << "Video finished!" << std::endl;
+            return 0;
+          }
+        }
+
+        std::cout << "skipping frame #" << numFrame << std::endl;
+        numFrame++;
+
+        continue;
+      }
+
       // undistort and update the images
+      std::vector<cv::Mat> rawImages;
       for (unsigned int i = 0; i < numCam; i++)
       {
         cv::Mat imageOrig;
@@ -192,6 +214,8 @@ int main(int argc, char* argv[])
           std::cout << "Video finished!" << std::endl;
           return 0;
         }
+
+        rawImages.push_back(imageOrig);
 
         cv::Mat imageGray;
         cv::cvtColor(imageOrig, imageGray, CV_BGR2GRAY);
@@ -207,11 +231,25 @@ int main(int argc, char* argv[])
         std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double> >
             undistRes = cFEIP.undistort(0.5, 1.0, k1, k2, p1, p2);
 
-        if (numFrame == 0)
+        if (numFrame == numSkip)
           int id = cFEPS.addDeviceImage(undistRes.first, undistRes.second);
         else
           cFEPS.updateDeviceImage(i, undistRes.first);
       }
+
+      // display raw images for all views
+      cv::Mat mainWindowImage = rawImages[0];
+      cv::Mat smallWindowImages;
+      cv::hconcat(rawImages[1], rawImages[3], smallWindowImages);
+      cv::hconcat(smallWindowImages, rawImages[2], smallWindowImages);
+      int newWidth = mainWindowImage.cols;
+      int newHeight = smallWindowImages.rows / 3;
+      cv::resize(smallWindowImages, smallWindowImages, cv::Size(newWidth, newHeight));
+      cv::Mat windowImage;
+      cv::vconcat(mainWindowImage, smallWindowImages, windowImage);
+      cv::resize(windowImage, windowImage, cv::Size(), 0.5, 0.5);
+      cv::imshow("Raw images", windowImage);
+      cv::waitKey(1);
 
       {
         cFEPS.process(refId);
@@ -231,6 +269,22 @@ int main(int argc, char* argv[])
 
         cv::imshow("Reference Image", refImage);
         fEDM.displayInvDepthColored(minDepth, maxDepth, 1);
+
+        cv::Mat colInvDepth;
+        fEDM.getInvDepthColored(minDepth, maxDepth, colInvDepth);
+
+        // show depth on the edges
+        cv::Mat detectedEdges;
+        cv::blur(refImage, detectedEdges, cv::Size(3, 3));
+        cv::Canny(detectedEdges, detectedEdges, 30.0, 100.0, 3);
+
+        cv::Mat edgeOnColInvDepth;
+        cv::Mat invDetectedEdges =
+            cv::Mat::ones(detectedEdges.size(), detectedEdges.type()) * 255 -
+            detectedEdges;
+        colInvDepth.copyTo(edgeOnColInvDepth, invDetectedEdges);
+
+        cv::imshow("edges on the depth", edgeOnColInvDepth);
         cv::waitKey(1);
       }
 
