@@ -52,14 +52,17 @@ int main(int argc, char* argv[])
   cv::Mat image = cv::imread(imageFile);
 
   // -- set camera
-  Eigen::Matrix3d R;
-  R = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
-      Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-      Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+  Eigen::Matrix3d R_cam2lidar;
+  R_cam2lidar = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+                Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+                Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
 
-  Eigen::Vector3d t(t_x, t_y, t_z);
+  Eigen::Vector3d t_cam2lidar(t_x, t_y, t_z);
 
-  PSL::FishEyeCameraMatrix<double> cam(K, R, t, xi);
+  Eigen::Matrix3d R_lidar2cam = R_cam2lidar.transpose();
+  Eigen::Vector3d t_lidar2cam = -R_cam2lidar.transpose() * t_cam2lidar;
+
+  PSL::FishEyeCameraMatrix<double> cam(K, R_lidar2cam, t_lidar2cam, xi);
 
   // -- load point cloud
   vector<Eigen::Vector3d> pointCloud;
@@ -99,7 +102,7 @@ int main(int argc, char* argv[])
   devImg.allocatePitchedAndUpload(image);
   cFEIP.setInputImg(devImg, cam);
 
-  std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double> > undistRes =
+  std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>> undistRes =
       cFEIP.undistort(1.0, 1.0, k1, k2, p1, p2);
 
   cv::Mat undistImage;
@@ -153,16 +156,16 @@ int main(int argc, char* argv[])
   for (int i = 0; i < 3; i++)
     for (int j = 0; j < 3; j++)
     {
-      R_cv.at<double>(i, j) = R(i, j);
+      R_cv.at<double>(i, j) = R_lidar2cam(i, j);
     }
 
   cv::Mat rvec;
   Rodrigues(R_cv, rvec);
 
   cv::Mat tvec = cv::Mat::zeros(3, 1, CV_64F);
-  tvec.at<double>(0) = t(0);
-  tvec.at<double>(1) = t(1);
-  tvec.at<double>(2) = t(2);
+  tvec.at<double>(0) = t_lidar2cam(0);
+  tvec.at<double>(1) = t_lidar2cam(1);
+  tvec.at<double>(2) = t_lidar2cam(2);
 
   cv::Mat K_new_cv = cv::Mat::eye(3, 3, CV_64F);
   K_new_cv.at<double>(0, 0) = image.cols / 3.1415;
