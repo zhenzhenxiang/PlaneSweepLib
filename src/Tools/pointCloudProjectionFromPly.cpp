@@ -25,7 +25,7 @@ using namespace std;
 typedef pcl::PointXYZRGB Point;
 typedef pcl::PointCloud<Point> PointCloud;
 
-void getDepthImage(PointCloud::Ptr cloud, double minDepth, double maxDepth,
+void getDepthImage(PointCloud::ConstPtr cloud, double minDepth, double maxDepth,
                    PSL::FishEyeCameraMatrix<double>& cam,
                    cv::Mat_<double>& depthImage);
 void displayDepthImage(const cv::Mat_<double>& depthImage,
@@ -162,7 +162,7 @@ int main(int argc, char* argv[])
   return 0;
 }
 
-void getDepthImage(PointCloud::Ptr cloud, double minDepth, double maxDepth,
+void getDepthImage(PointCloud::ConstPtr cloud, double minDepth, double maxDepth,
                    PSL::FishEyeCameraMatrix<double>& cam,
                    cv::Mat_<double>& depthImage)
 {
@@ -171,16 +171,13 @@ void getDepthImage(PointCloud::Ptr cloud, double minDepth, double maxDepth,
     Eigen::Vector3d p3Dlidar;
     p3Dlidar << cloud->points[i].x, cloud->points[i].y, cloud->points[i].z;
 
-    // ignore points with negative depth
+    // ignore points too close or too far
     Eigen::Matrix3d R_lidar2cam = cam.getR();
     Eigen::Vector3d t_lidar2cam = cam.getT();
     Eigen::Vector3d p3Dcam;
     p3Dcam = R_lidar2cam * p3Dlidar + t_lidar2cam;
-    if (p3Dcam(2) < 0.0)
-      continue;
+    double curDepth = p3Dcam(2);
 
-    // ignore points too close or too far
-    double curDepth = p3Dcam.norm();
     if (curDepth < minDepth || curDepth > maxDepth)
       continue;
 
