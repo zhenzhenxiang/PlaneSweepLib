@@ -22,6 +22,12 @@ using namespace std;
 typedef pcl::PointXYZRGB Point;
 typedef pcl::PointCloud<Point> PointCloud;
 
+void getDepthImage(PointCloud::Ptr cloud, double minDepth, double maxDepth,
+                   PSL::FishEyeCameraMatrix<double>& cam,
+                   cv::Mat_<double>& depthImage);
+void displayDepthImage(const cv::Mat_<double>& depthImage,
+                       cv::Mat& undistImage);
+
 int main(int argc, char* argv[])
 {
   if (argc != 2)
@@ -73,17 +79,17 @@ int main(int argc, char* argv[])
 
   // -- load point cloud
   pcl::PLYReader pclReader;
-  PointCloud inCloud;
-  pclReader.read(pointCloudFile, inCloud);
+  PointCloud::Ptr inCloud(new PointCloud());
+  pclReader.read(pointCloudFile, *inCloud);
 
-  if (inCloud.size() == 0)
+  if (inCloud->points.size() == 0)
   {
     cout << "No points loaded!" << endl;
     return 1;
   }
   else
     cout << "Data loading finished. Total valid lidar points: "
-         << inCloud.size() << endl;
+         << inCloud->points.size() << endl;
 
   // undistort image
   PSL_CUDA::DeviceImage devImg;
@@ -101,44 +107,82 @@ int main(int argc, char* argv[])
 
   cv::cvtColor(undistImage, undistImage, CV_GRAY2BGR);
 
-  // project lidar points
-  double minDist = 3.0;
-  double maxDist = 100.0;
-  for (int i = 0; i < inCloud.size(); i++)
+  // get depth image
+  double minDepth = 3.0;
+  double maxDepth = 150.0;
+  cv::Mat_<double> depthImage(image.rows, image.cols, -1.0);
+
+  getDepthImage(inCloud, minDepth, maxDepth, cam, depthImage);
+
+  // visualize depth image
+  cv::Mat allOnImage = undistImage.clone();
+  displayDepthImage(depthImage, allOnImage);
+
+  return 0;
+}
+
+void getDepthImage(PointCloud::Ptr cloud, double minDepth, double maxDepth,
+                   PSL::FishEyeCameraMatrix<double>& cam,
+                   cv::Mat_<double>& depthImage)
+{
+  for (int i = 0; i < cloud->points.size(); i++)
   {
     Eigen::Vector3d p3Dlidar;
-    p3Dlidar << inCloud.points[i].x, inCloud.points[i].y, inCloud.points[i].z;
+    p3Dlidar << cloud->points[i].x, cloud->points[i].y, cloud->points[i].z;
 
+    // ignore points with negative depth
+    Eigen::Matrix3d R_lidar2cam = cam.getR();
+    Eigen::Vector3d t_lidar2cam = cam.getT();
     Eigen::Vector3d p3Dcam;
     p3Dcam = R_lidar2cam * p3Dlidar + t_lidar2cam;
-
-    // ignore points with negative depth in camera frame
-    if (p3Dcam(2) < 0)
+    if (p3Dcam(2) < 0.0)
       continue;
 
     // ignore points too close or too far
-    double dist = sqrt(p3Dlidar(0) * p3Dlidar(0) + p3Dlidar(1) * p3Dlidar(1) +
-                       p3Dlidar(2) * p3Dlidar(2));
-    if (dist < minDist || dist > maxDist)
+    double curDepth = p3Dcam.norm();
+    if (curDepth < minDepth || curDepth > maxDepth)
       continue;
 
+    // get corresponding 2D point index on the image
     Eigen::Vector2d p2D;
     p2D = cam.projectPoint(p3Dlidar(0), p3Dlidar(1), p3Dlidar(2));
 
-    // draw on image
-    double minZ = 3.0;
-    double maxZ = 60.0;
-    double value = (p3Dcam(2) - minZ) / (maxZ - minZ) * 255;
-    int color_r = value > 128 ? (value - 128) * 2 : 0;
-    int color_g = value < 128 ? 2 * value : 255 - ((value - 128) * 2);
-    int color_b = value < 128 ? 255 - (2 * value) : 0;
-    cv::circle(undistImage, cv::Point(p2D(0), p2D(1)), 1,
-               cv::Scalar(color_b, color_g, color_r), -1);
+    int row = (int)p2D(1);
+    int col = (int)p2D(0);
+
+    if (row < 0 || row >= depthImage.rows || col < 0 || col >= depthImage.cols)
+      continue;
+
+    // replace if it is closer
+    double& preDepth = depthImage.at<double>(row, col);
+
+    if (curDepth < preDepth || preDepth < 0.0)
+      preDepth = curDepth;
   }
+}
+
+void displayDepthImage(const cv::Mat_<double>& depthImage, cv::Mat& undistImage)
+{
+  for (int i = 0; i < depthImage.rows; i++)
+    for (int j = 0; j < depthImage.cols; j++)
+    {
+      double depth = depthImage.at<double>(i, j);
+
+      if (depth < 0.0)
+        continue;
+
+      // draw on image
+      double minZ = 3.0;
+      double maxZ = 100.0;
+      double value = (depth - minZ) / (maxZ - minZ) * 255;
+      int color_r = value > 128 ? (value - 128) * 2 : 0;
+      int color_g = value < 128 ? 2 * value : 255 - ((value - 128) * 2);
+      int color_b = value < 128 ? 255 - (2 * value) : 0;
+      cv::circle(undistImage, cv::Point(j, i), 1,
+                 cv::Scalar(color_b, color_g, color_r), -1);
+    }
 
   // show projection image
   cv::imshow("result", undistImage);
   cv::waitKey(0);
-
-  return 0;
 }
