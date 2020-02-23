@@ -16,6 +16,9 @@
 #include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
 #include <pcl/registration/icp.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
 
 using namespace std;
 
@@ -91,6 +94,39 @@ int main(int argc, char* argv[])
     cout << "Data loading finished. Total valid lidar points: "
          << inCloud->points.size() << endl;
 
+  // plane segmentation
+  pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr planeInliners(new pcl::PointIndices);
+  // Create the segmentation object
+  pcl::SACSegmentation<Point> seg;
+  // Optional
+  seg.setOptimizeCoefficients(true);
+  // Mandatory
+  seg.setModelType(pcl::SACMODEL_PLANE);
+  seg.setMethodType(pcl::SAC_RANSAC);
+  seg.setDistanceThreshold(0.3);
+
+  seg.setInputCloud(inCloud);
+  seg.segment(*planeInliners, *coefficients);
+
+  if (planeInliners->indices.size() == 0)
+  {
+    PCL_ERROR("Could not estimate a planar model for the given dataset.");
+    return (-1);
+  }
+
+  cout << "Plane coefficients: " << coefficients->values[0] << " "
+       << coefficients->values[1] << " " << coefficients->values[2] << " "
+       << coefficients->values[3] << endl;
+
+  cout << "Plane inliers: " << planeInliners->indices.size() << endl;
+
+  PointCloud::Ptr planeCloud(new PointCloud());
+  for (int i = 0; i < planeInliners->indices.size(); i++)
+  {
+    planeCloud->push_back(inCloud->points[planeInliners->indices[i]]);
+  }
+
   // undistort image
   PSL_CUDA::DeviceImage devImg;
   PSL_CUDA::CudaFishEyeImageProcessor cFEIP;
@@ -99,7 +135,7 @@ int main(int argc, char* argv[])
   devImg.allocatePitchedAndUpload(image);
   cFEIP.setInputImg(devImg, cam);
 
-  std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>> undistRes =
+  pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>> undistRes =
       cFEIP.undistort(1.0, 1.0, k1, k2, p1, p2);
 
   cv::Mat undistImage;
@@ -111,12 +147,17 @@ int main(int argc, char* argv[])
   double minDepth = 3.0;
   double maxDepth = 150.0;
   cv::Mat_<double> depthImage(image.rows, image.cols, -1.0);
+  cv::Mat_<double> depthPlaneImage(image.rows, image.cols, -1.0);
 
   getDepthImage(inCloud, minDepth, maxDepth, cam, depthImage);
+  getDepthImage(planeCloud, minDepth, maxDepth, cam, depthPlaneImage);
 
   // visualize depth image
   cv::Mat allOnImage = undistImage.clone();
   displayDepthImage(depthImage, allOnImage);
+
+  cv::Mat planeOnImage = undistImage.clone();
+  displayDepthImage(depthPlaneImage, planeOnImage);
 
   return 0;
 }
