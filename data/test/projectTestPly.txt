@@ -8,3 +8,4 @@ cam_to_lidar:
 
 pointCloud: data/test/merged_aligned_accumulated_1575525305904337000_20.000000.ply
 
+free_space_mask: data/test/1575525305904337000_freespace.png

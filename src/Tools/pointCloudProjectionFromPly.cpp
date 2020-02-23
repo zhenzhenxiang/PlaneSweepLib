@@ -30,6 +30,10 @@ void getDepthImage(PointCloud::ConstPtr cloud, double minDepth, double maxDepth,
                    cv::Mat_<double>& depthImage);
 void displayDepthImage(const cv::Mat_<double>& depthImage,
                        cv::Mat& undistImage);
+void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
+                       double maxDepth, PSL::FishEyeCameraMatrix<double>& cam,
+                       const cv::Mat& freespaceImage,
+                       PointCloud::Ptr freespaceCloud);
 
 int main(int argc, char* argv[])
 {
@@ -48,7 +52,7 @@ int main(int argc, char* argv[])
   }
 
   string descpt;
-  string imageFile, pointCloudFile;
+  string imageFile, pointCloudFile, freespaceFile;
   Eigen::Matrix3d K = Eigen::Matrix3d::Identity();
   double xi;
   double k1, k2, p1, p2;
@@ -63,6 +67,8 @@ int main(int argc, char* argv[])
   dataFile >> descpt >> roll >> pitch >> yaw >> t_x >> t_y >> t_z;
 
   dataFile >> descpt >> pointCloudFile;
+
+  dataFile >> descpt >> freespaceFile;
 
   // -- set image
   cv::Mat image = cv::imread(imageFile);
@@ -94,6 +100,18 @@ int main(int argc, char* argv[])
     cout << "Data loading finished. Total valid lidar points: "
          << inCloud->points.size() << endl;
 
+  // -- load freespace mask
+  cv::Mat freespaceImage = cv::imread(freespaceFile, cv::IMREAD_GRAYSCALE);
+
+  // get point cloud in freespace
+  double minDepth = 3.0;
+  double maxDepth = 150.0;
+  PointCloud::Ptr freespaceCloud(new PointCloud());
+  getFreespaceCloud(inCloud, minDepth, maxDepth, cam, freespaceImage,
+                    freespaceCloud);
+
+  cout << "Freespace cloud points: " << freespaceCloud->points.size() << endl;
+
   // plane segmentation
   pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
   pcl::PointIndices::Ptr planeInliners(new pcl::PointIndices);
@@ -106,7 +124,7 @@ int main(int argc, char* argv[])
   seg.setMethodType(pcl::SAC_RANSAC);
   seg.setDistanceThreshold(0.3);
 
-  seg.setInputCloud(inCloud);
+  seg.setInputCloud(freespaceCloud);
   seg.segment(*planeInliners, *coefficients);
 
   if (planeInliners->indices.size() == 0)
@@ -124,7 +142,7 @@ int main(int argc, char* argv[])
   PointCloud::Ptr planeCloud(new PointCloud());
   for (int i = 0; i < planeInliners->indices.size(); i++)
   {
-    planeCloud->push_back(inCloud->points[planeInliners->indices[i]]);
+    planeCloud->push_back(freespaceCloud->points[planeInliners->indices[i]]);
   }
 
   // undistort image
@@ -144,8 +162,6 @@ int main(int argc, char* argv[])
   cv::cvtColor(undistImage, undistImage, CV_GRAY2BGR);
 
   // get depth image
-  double minDepth = 3.0;
-  double maxDepth = 150.0;
   cv::Mat_<double> depthImage(image.rows, image.cols, -1.0);
   cv::Mat_<double> depthPlaneImage(image.rows, image.cols, -1.0);
 
@@ -223,4 +239,42 @@ void displayDepthImage(const cv::Mat_<double>& depthImage, cv::Mat& undistImage)
   // show projection image
   cv::imshow("result", undistImage);
   cv::waitKey(0);
+}
+
+void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
+                       double maxDepth, PSL::FishEyeCameraMatrix<double>& cam,
+                       const cv::Mat& freespaceImage,
+                       PointCloud::Ptr freespaceCloud)
+{
+  for (int i = 0; i < cloud->points.size(); i++)
+  {
+    Eigen::Vector3d p3Dlidar;
+    p3Dlidar << cloud->points[i].x, cloud->points[i].y, cloud->points[i].z;
+
+    // ignore points too close or too far
+    Eigen::Matrix3d R_lidar2cam = cam.getR();
+    Eigen::Vector3d t_lidar2cam = cam.getT();
+    Eigen::Vector3d p3Dcam;
+    p3Dcam = R_lidar2cam * p3Dlidar + t_lidar2cam;
+    double curDepth = p3Dcam(2);
+
+    if (curDepth < minDepth || curDepth > maxDepth)
+      continue;
+
+    // get corresponding 2D point index on the image
+    Eigen::Vector2d p2D;
+    p2D = cam.projectPoint(p3Dlidar(0), p3Dlidar(1), p3Dlidar(2));
+
+    int row = (int)p2D(1);
+    int col = (int)p2D(0);
+
+    if (row < 0 || row >= freespaceImage.rows || col < 0 ||
+        col >= freespaceImage.cols)
+      continue;
+
+    // add free point
+    uchar value = freespaceImage.at<uchar>(row, col);
+    if (value > 250)
+      freespaceCloud->points.push_back(cloud->points[i]);
+  }
 }
