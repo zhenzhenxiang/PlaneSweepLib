@@ -28,6 +28,13 @@
 #include <cstdlib>
 #include <psl_base/common.h>
 
+#include <pcl/io/ply_io.h>
+#include <pcl/point_types.h>
+#include <pcl/registration/icp.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+
 void makeOutputFolder(std::string folderName)
 {
   if (!boost::filesystem::exists(folderName))
@@ -238,7 +245,8 @@ int main(int argc, char* argv[])
       // show uniqueness ratios
       PSL::Grid<float> uniquenessRatios;
       uniquenessRatios = cFEPS.getUniquenessRatios();
-      PSL::displayGridZSliceAsImage(uniquenessRatios, 0, 1, "Uniqueness Ratios");
+      PSL::displayGridZSliceAsImage(uniquenessRatios, 0, 1,
+                                    "Uniqueness Ratios");
       cv::waitKey();
 
       PSL::Grid<float> costVolume;
@@ -291,13 +299,14 @@ int main(int argc, char* argv[])
       cv::imshow("edges on the depth", edgeOnColInvDepth);
       cv::waitKey(10);
 
-      std::ofstream pointCloudFile("fisheyeTestResultsSaic/grayscaleZNCC/"
-                                   "NoOcclusionHandling/pointCloud.wrl");
-      fEDM.pointCloudColoredToVRML(pointCloudFile, refImage, maxDepth);
+      // get pointCloud as PCL
+      PointCloud::Ptr cloud;
+      cloud = fEDM.getPointCloudColoredPCL(refImage, maxDepth);
 
-      std::ofstream meshFile("fisheyeTestResultsSaic/grayscaleZNCC/"
-                             "NoOcclusionHandling/mesh.wrl");
-      fEDM.meshToVRML(meshFile, "refImg.png", 1.0, -1, maxDepth);
+      // save pointCloud as Ply file
+      std::string pointCloudFile = "fisheyeTestResultsSaic/grayscaleZNCC/"
+                                   "NoOcclusionHandling/pointCloud.ply";
+      fEDM.pointCloudColoredToPly(pointCloudFile, refImage, maxDepth);
 
       cv::waitKey();
     }

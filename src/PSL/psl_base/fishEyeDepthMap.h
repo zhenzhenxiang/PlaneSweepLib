@@ -24,6 +24,12 @@
 #include <opencv2/core/core.hpp>
 #include <boost/shared_array.hpp>
 
+#include <pcl/io/ply_io.h>
+#include <pcl/point_types.h>
+
+typedef pcl::PointXYZRGB Point;
+typedef pcl::PointCloud<Point> PointCloud;
+
 namespace PSL
 {
     template<typename T, typename U>
@@ -60,6 +66,8 @@ namespace PSL
         void meshToVRML(std::ofstream& os, std::string textureImageFileName, float scale, float maxDispDiff, U maxDist = -1);
         void pointCloudToVRML(std::ofstream& os, U maxDist = -1);
         void pointCloudColoredToVRML(std::ofstream& os, cv::Mat image, U maxDist = -1);
+        void pointCloudColoredToPly(std::string fileName, cv::Mat image, U maxDist = -1);
+        PointCloud::Ptr getPointCloudColoredPCL(cv::Mat image, U maxDist, cv::Mat mask = cv::Mat());
 
     private:
         boost::shared_array<T> depths;

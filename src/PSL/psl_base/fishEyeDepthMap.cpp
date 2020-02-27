@@ -332,6 +332,62 @@ void FishEyeDepthMap<T, U>::pointCloudColoredToVRML(std::ofstream& os, cv::Mat i
 }
 
 template <typename T, typename U>
+void FishEyeDepthMap<T, U>::pointCloudColoredToPly(string fileName, cv::Mat image, U maxDist)
+{
+  PointCloud::Ptr cloud;
+
+  cloud = getPointCloudColoredPCL(image, maxDist);
+
+  pcl::PLYWriter writer;
+  writer.write(fileName, *cloud, true);
+}
+
+template <typename T, typename U>
+PointCloud::Ptr FishEyeDepthMap<T, U>::getPointCloudColoredPCL(cv::Mat image, U maxDist, cv::Mat mask)
+{
+  PointCloud::Ptr cloud(new PointCloud());
+
+  for (unsigned int y = 0; y < height; y++)
+    for (unsigned int x = 0; x < width; x++)
+    {
+      if (!mask.empty() && mask.at<uchar>(x, y) == 0)
+        continue;
+
+      Eigen::Matrix<U, 4, 1> reprojPoint = unproject(x,y);
+      if (maxDist > 0 && reprojPoint(3) == 1)
+      {
+        U dist = (reprojPoint.topRows(3) - cam.getC()).norm();
+        if (dist < maxDist)
+        {
+          Point p;
+          p.x = reprojPoint(0);
+          p.y = reprojPoint(1);
+          p.z = reprojPoint(2);
+
+          if (image.channels() == 3)
+          {
+            cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
+            p.b = pixel[0];
+            p.g = pixel[1];
+            p.r = pixel[2];
+          }
+          else if (image.channels() == 1)
+          {
+            uchar pixel = image.at<uchar>(y, x);
+            p.b = pixel;
+            p.g = pixel;
+            p.r = pixel;
+          }
+
+          cloud->points.push_back(p);
+        }
+      }
+    }
+
+  return cloud;
+}
+
+template <typename T, typename U>
 void FishEyeDepthMap<T, U>::setCam(const FishEyeCameraMatrix<U>& cam)
 {
     this->cam = cam;

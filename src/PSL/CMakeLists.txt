@@ -30,6 +30,11 @@ cuda_compile(PSL_CUDA_SRC_FILES
   #-Xcompiler -fpic
 )
 
+find_package(PCL REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
+
 add_library(PSL STATIC
   ${PSL_BASE_SRC_FILES}
   ${PSL_IO_SRC_FILES}
@@ -41,4 +46,5 @@ add_library(PSL STATIC
 target_link_libraries(PSL
   ${OpenCV_LIBRARIES}
   ${CUDA_CUDART_LIBRARY}
+  ${PCL_LIBRARIES}
 )
