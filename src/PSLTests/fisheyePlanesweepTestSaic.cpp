@@ -67,8 +67,8 @@ int main(int argc, char* argv[])
   }
 
   // read in the calibration
-  std::vector<PSL::FishEyeCameraMatrix<double> > cams;
-  std::vector<std::vector<double> > dist_coeffs;
+  std::vector<PSL::FishEyeCameraMatrix<double>> cams;
+  std::vector<std::vector<double>> dist_coeffs;
   std::string calibFileName = dataFolder + "/calib.txt";
 
   std::ifstream calibrationStr;
@@ -193,7 +193,7 @@ int main(int argc, char* argv[])
       double k2 = dist_coeffs[i][1];
       double p1 = dist_coeffs[i][2];
       double p2 = dist_coeffs[i][3];
-      std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double> >
+      std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>>
           undistRes = cFEIP.undistort(0.5, 1.0, k1, k2, p1, p2);
 
       // show undistorted image
@@ -214,7 +214,8 @@ int main(int argc, char* argv[])
 
       PSL::Grid<float> bestCosts;
       bestCosts = cFEPS.getBestCosts();
-      PSL::displayGridZSliceAsImage(bestCosts, 0, 1, "Best Costs");
+      PSL::displayGridZSliceAsImage(bestCosts, 0, (float)0.0, (float)1.0, 1,
+                                    "Best Costs");
 
       PSL::Grid<int> bestPlanes;
       bestPlanes = cFEPS.getBestPlanes();
@@ -244,7 +245,8 @@ int main(int argc, char* argv[])
       costVolume = cFEPS.getCostVolume();
       for (unsigned int i = 0; i < costVolume.getDepth(); i++)
       {
-        PSL::displayGridZSliceAsImage(costVolume, i, 20, "Cost Volume");
+        PSL::displayGridZSliceAsImage(costVolume, i, (float)0.0, (float)1.0, 30,
+                                      "Cost Volume");
       }
 
       makeOutputFolder(
@@ -257,14 +259,6 @@ int main(int argc, char* argv[])
       fEDM.saveInvDepthAsColorImage("fisheyeTestResultsSaic/grayscaleZNCC/"
                                     "NoOcclusionHandling/invDepthCol.png",
                                     minDepth, maxDepth);
-
-      std::ofstream pointCloudFile("fisheyeTestResultsSaic/grayscaleZNCC/"
-                                   "NoOcclusionHandling/pointCloud.wrl");
-      fEDM.pointCloudColoredToVRML(pointCloudFile, refImage, maxDepth);
-
-      std::ofstream meshFile("fisheyeTestResultsSaic/grayscaleZNCC/"
-                                   "NoOcclusionHandling/mesh.wrl");
-      fEDM.meshToVRML(meshFile, "refImg.png", 1.0, -1, maxDepth);
 
       fEDM.displayInvDepthColored(minDepth, maxDepth, 100);
 
@@ -295,6 +289,15 @@ int main(int argc, char* argv[])
       cv::imshow("detected edges", detectedEdges);
       cv::imshow("invert depth of the edges", edgeColInvDepth);
       cv::imshow("edges on the depth", edgeOnColInvDepth);
+      cv::waitKey(10);
+
+      std::ofstream pointCloudFile("fisheyeTestResultsSaic/grayscaleZNCC/"
+                                   "NoOcclusionHandling/pointCloud.wrl");
+      fEDM.pointCloudColoredToVRML(pointCloudFile, refImage, maxDepth);
+
+      std::ofstream meshFile("fisheyeTestResultsSaic/grayscaleZNCC/"
+                             "NoOcclusionHandling/mesh.wrl");
+      fEDM.meshToVRML(meshFile, "refImg.png", 1.0, -1, maxDepth);
 
       cv::waitKey();
     }
