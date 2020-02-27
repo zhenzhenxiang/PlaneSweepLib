@@ -1,4 +1,4 @@
-f120.png
-lf120.png
-rf120.png
-f60.png
+f120.jpg
+lf120.jpg
+rf120.jpg
+f60.jpg
