@@ -94,15 +94,24 @@ void CudaFishEyePlaneSweep::setZRange(double nearZ, double farZ)
     this->farZ = farZ;
 }
 
-void CudaFishEyePlaneSweep::setAngleRange(double rollRange, double pitchRange)
+void CudaFishEyePlaneSweep::setRollAngleRange(double rollRange)
 {
     this->rollRange = rollRange;
-    this->pitchRange = pitchRange;
 }
 
-void CudaFishEyePlaneSweep::setNumAngles(int num)
+void CudaFishEyePlaneSweep::setPitchAngleRange(double pitchRange)
 {
-    this->numAngles = num;
+  this->pitchRange = pitchRange;
+}
+
+void CudaFishEyePlaneSweep::setNumRollAngles(int num)
+{
+    this->numRollAngles = num;
+}
+
+void CudaFishEyePlaneSweep::setNumPitchAngles(int num)
+{
+  this->numPitchAngles = num;
 }
 
 void CudaFishEyePlaneSweep::setOcclusionMode(FishEyePlaneSweepOcclusionMode occlusionMode)
@@ -313,17 +322,17 @@ void CudaFishEyePlaneSweep::process(int refImgId)
       Eigen::Vector3d nW;
       nW << 0.0, 0.0, 1.0;
 
-      double rollStep = (numAngles == 1) ? 0.0 : rollRange / (numAngles - 1);
-      double pitchStep = (numAngles == 1) ? 0.0 : pitchRange / (numAngles - 1);
+      double rollStep = (numRollAngles == 1) ? 0.0 : rollRange / (numRollAngles - 1);
+      double pitchStep = (numPitchAngles == 1) ? 0.0 : pitchRange / (numPitchAngles - 1);
 
       double depthStep = (numPlanes == 1) ? 0.0 : (farZ - nearZ)/(numPlanes-1);
 
-      planes = Grid<Eigen::Vector4d>(numPlanes * numAngles * numAngles, 1);
+      planes = Grid<Eigen::Vector4d>(numPlanes * numRollAngles * numPitchAngles, 1);
       int cntPlane = 0;
 
       for (int i = 0; i < numPlanes; i++)
-        for (int r = 0; r < numAngles; r++)
-          for (int p = 0; p < numAngles; p++)
+        for (int r = 0; r < numRollAngles; r++)
+          for (int p = 0; p < numPitchAngles; p++)
           {
             // rotation
             double roll = - rollRange / 2.0 + r * rollStep;
@@ -898,9 +907,14 @@ int CudaFishEyePlaneSweep::getNumPlanes()
   return numPlanes;
 }
 
-int CudaFishEyePlaneSweep::getNumAngles()
+int CudaFishEyePlaneSweep::getNumRollAngles()
 {
-  return numAngles;
+  return numRollAngles;
+}
+
+int CudaFishEyePlaneSweep::getNumPitchAngles()
+{
+  return numPitchAngles;
 }
 
 Grid<float> CudaFishEyePlaneSweep::getUniquenessRatios()

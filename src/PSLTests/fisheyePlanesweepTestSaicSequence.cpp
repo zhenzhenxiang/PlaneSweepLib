@@ -182,8 +182,10 @@ int main(int argc, char* argv[])
 
     double rollRange = 2.0 * M_PI / 180.0;
     double pitchRange = 2.0 * M_PI / 180.0;
-    cFEPS.setAngleRange(rollRange, pitchRange);
-    cFEPS.setNumAngles(5);
+    cFEPS.setRollAngleRange(rollRange);
+    cFEPS.setPitchAngleRange(pitchRange);
+    cFEPS.setNumRollAngles(5);
+    cFEPS.setNumPitchAngles(5);
 
     // iterate frames in the video
     int numFrame = 0;

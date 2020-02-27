@@ -132,8 +132,10 @@ namespace PSL
 
         // needs to be set prior to run
         void setZRange(double nearZ, double farZ);
-        void setAngleRange(double rollRange, double pitchRange);
-        void setNumAngles(int num);
+        void setRollAngleRange(double rollRange);
+        void setPitchAngleRange(double pitchRange);
+        void setNumRollAngles(int num);
+        void setNumPitchAngles(int num);
         void setMatchWindowSize(int w, int h);
         void setNumPlanes(int num);
         void setOcclusionMode(FishEyePlaneSweepOcclusionMode occlusionMode);
@@ -158,7 +160,8 @@ namespace PSL
         Grid<int> getBestPlanes();
         Grid<Eigen::Vector4d> getPlanes();
         int getNumPlanes();
-        int getNumAngles();
+        int getNumRollAngles();
+        int getNumPitchAngles();
         FishEyeCameraMatrix<double> getRefImgCam();
 
         cv::Mat downloadImage(int id);
@@ -178,7 +181,8 @@ namespace PSL
 
         double rollRange;
         double pitchRange;
-        double numAngles;
+        double numRollAngles;
+        double numPitchAngles;
 
         double scale;
 

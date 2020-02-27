@@ -146,7 +146,7 @@ int main(int argc, char* argv[])
     PSL::CudaFishEyePlaneSweep cFEPS;
     cFEPS.setScale(1.0);
     cFEPS.setMatchWindowSize(30, 30);
-    cFEPS.setNumPlanes(5);
+    cFEPS.setNumPlanes(1);
     cFEPS.setOcclusionMode(PSL::FISH_EYE_PLANE_SWEEP_OCCLUSION_NONE);
     cFEPS.setPlaneGenerationMode(
         PSL::FISH_EYE_PLANE_SWEEP_PLANEMODE_UNIFORM_DEPTH_GROUND);
@@ -162,15 +162,17 @@ int main(int argc, char* argv[])
 
     int refId = 0;
 
-    double groundDeltaRange = 0.3;
+    double groundDeltaRange = 0.0;
     double minZ = -groundDeltaRange / 2.0;
     double maxZ = groundDeltaRange / 2.0;
     cFEPS.setZRange(minZ, maxZ);
 
-    double rollRange = 2.0 * M_PI / 180.0;
-    double pitchRange = 2.0 * M_PI / 180.0;
-    cFEPS.setAngleRange(rollRange, pitchRange);
-    cFEPS.setNumAngles(5);
+    double rollRange = 0.0 * M_PI / 180.0;
+    double pitchRange = 10.0 * M_PI / 180.0;
+    cFEPS.setRollAngleRange(rollRange);
+    cFEPS.setPitchAngleRange(pitchRange);
+    cFEPS.setNumRollAngles(1);
+    cFEPS.setNumPitchAngles(60);
 
     // undistort and add the images
     for (unsigned int i = 0; i < numCam; i++)
@@ -219,8 +221,8 @@ int main(int argc, char* argv[])
       cv::Mat_<int> sliceMat(bestPlanes.getHeight(), bestPlanes.getWidth(),
                              &bestPlanes(0, 0, 0));
 
-      float numPlanes =
-          cFEPS.getNumPlanes() * cFEPS.getNumAngles() * cFEPS.getNumAngles();
+      float numPlanes = cFEPS.getNumPlanes() * cFEPS.getNumRollAngles() *
+                        cFEPS.getNumPitchAngles();
       cv::Mat bestPlanesImage(bestPlanes.getHeight(), bestPlanes.getWidth(),
                               CV_8UC1);
       for (int r = 0; r < bestPlanes.getHeight(); r++)
