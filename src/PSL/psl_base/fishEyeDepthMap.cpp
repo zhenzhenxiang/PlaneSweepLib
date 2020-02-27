@@ -332,11 +332,11 @@ void FishEyeDepthMap<T, U>::pointCloudColoredToVRML(std::ofstream& os, cv::Mat i
 }
 
 template <typename T, typename U>
-void FishEyeDepthMap<T, U>::pointCloudColoredToPly(string fileName, cv::Mat image, U maxDist)
+void FishEyeDepthMap<T, U>::pointCloudColoredToPly(string fileName, cv::Mat image, U maxDist, cv::Mat mask)
 {
   PointCloud::Ptr cloud;
 
-  cloud = getPointCloudColoredPCL(image, maxDist);
+  cloud = getPointCloudColoredPCL(image, maxDist, mask);
 
   pcl::PLYWriter writer;
   writer.write(fileName, *cloud, true);
@@ -350,7 +350,7 @@ PointCloud::Ptr FishEyeDepthMap<T, U>::getPointCloudColoredPCL(cv::Mat image, U 
   for (unsigned int y = 0; y < height; y++)
     for (unsigned int x = 0; x < width; x++)
     {
-      if (!mask.empty() && mask.at<uchar>(x, y) == 0)
+      if (!mask.empty() && mask.at<uchar>(y, x) == 0)
         continue;
 
       Eigen::Matrix<U, 4, 1> reprojPoint = unproject(x,y);

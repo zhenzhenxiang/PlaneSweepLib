@@ -66,7 +66,7 @@ namespace PSL
         void meshToVRML(std::ofstream& os, std::string textureImageFileName, float scale, float maxDispDiff, U maxDist = -1);
         void pointCloudToVRML(std::ofstream& os, U maxDist = -1);
         void pointCloudColoredToVRML(std::ofstream& os, cv::Mat image, U maxDist = -1);
-        void pointCloudColoredToPly(std::string fileName, cv::Mat image, U maxDist = -1);
+        void pointCloudColoredToPly(std::string fileName, cv::Mat image, U maxDist = -1, cv::Mat mask = cv::Mat());
         PointCloud::Ptr getPointCloudColoredPCL(cv::Mat image, U maxDist, cv::Mat mask = cv::Mat());
 
     private:

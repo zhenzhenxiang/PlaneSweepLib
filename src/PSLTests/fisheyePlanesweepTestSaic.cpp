@@ -48,6 +48,14 @@ void makeOutputFolder(std::string folderName)
   }
 }
 
+void loadData(std::string dataFolder,
+              std::vector<PSL::FishEyeCameraMatrix<double>>& cams,
+              std::vector<std::vector<double>>& dist_coeffs,
+              std::vector<std::string>& imageFileNames,
+              std::vector<std::string>& freespaceFileNames,
+              std::vector<std::string>& viewMaskFileNames,
+              std::vector<std::string>& stereoMaskFileNames);
+
 int main(int argc, char* argv[])
 {
   std::string dataFolder;
@@ -76,72 +84,13 @@ int main(int argc, char* argv[])
   // read in the calibration
   std::vector<PSL::FishEyeCameraMatrix<double>> cams;
   std::vector<std::vector<double>> dist_coeffs;
-  std::string calibFileName = dataFolder + "/calib.txt";
+  std::vector<std::string> imageFileNames, freespaceFileNames,
+      viewMaskFileNames, stereoMaskFileNames;
 
-  std::ifstream calibrationStr;
-  calibrationStr.open(calibFileName.c_str());
+  loadData(dataFolder, cams, dist_coeffs, imageFileNames, freespaceFileNames,
+           viewMaskFileNames, stereoMaskFileNames);
 
-  if (!calibrationStr.is_open())
-  {
-    PSL_THROW_EXCEPTION("Error opening calibration file calib.txt.")
-  }
-
-  int numCam;
-  calibrationStr >> numCam;
-
-  for (unsigned int i = 0; i < numCam; i++)
-  {
-    Eigen::Matrix3d K = Eigen::Matrix3d::Identity();
-    double xi;
-    std::vector<double> dist_coeff(4);
-
-    // intrinsic calibration and distortion parameters
-    calibrationStr >> K(0, 0) >> K(0, 1) >> K(0, 2);
-    calibrationStr >> K(1, 1) >> K(1, 2);
-    calibrationStr >> xi;
-    calibrationStr >> dist_coeff[0] >> dist_coeff[1] >> dist_coeff[2] >>
-        dist_coeff[3];
-
-    // extrinsic calibration
-    double roll, pitch, yaw, t_x, t_y, t_z;
-    calibrationStr >> roll >> pitch >> yaw >> t_x >> t_y >> t_z;
-
-    Eigen::Matrix3d R;
-    R = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
-        Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-        Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
-
-    Eigen::Vector3d C(t_x, t_y, t_z);
-
-    cams.push_back(PSL::FishEyeCameraMatrix<double>(K, R.transpose(),
-                                                    -R.transpose() * C, xi));
-    dist_coeffs.push_back(dist_coeff);
-  }
-
-  // now load the image filenames
-  std::string imageListFile = dataFolder + "/images.txt";
-
-  std::ifstream imagesStream;
-  imagesStream.open(imageListFile.c_str());
-
-  if (!imagesStream.is_open())
-  {
-    PSL_THROW_EXCEPTION("Could not load images list file")
-  }
-
-  std::vector<std::string> imageFileNames;
-  {
-    std::string imageFileName;
-    while (imagesStream >> imageFileName)
-    {
-      imageFileNames.push_back(imageFileName);
-    }
-  }
-
-  if (imageFileNames.size() != numCam)
-  {
-    PSL_THROW_EXCEPTION("The dataset does not contain correct number of images")
-  }
+  int numCam = cams.size();
 
   PSL_CUDA::DeviceImage devImg;
   PSL_CUDA::CudaFishEyeImageProcessor cFEIP;
@@ -184,7 +133,7 @@ int main(int argc, char* argv[])
     // undistort and add the images
     for (unsigned int i = 0; i < numCam; i++)
     {
-      std::string imageFileName = dataFolder + "/" + imageFileNames[i];
+      std::string imageFileName = imageFileNames[i];
       cv::Mat imageOrig = cv::imread(imageFileName, 0);
 
       if (imageOrig.empty())
@@ -299,16 +248,187 @@ int main(int argc, char* argv[])
       cv::imshow("edges on the depth", edgeOnColInvDepth);
       cv::waitKey(10);
 
+      // get depth mask for CAM-F120
+      cv::Mat viewMaskF120 =
+          cv::imread(viewMaskFileNames[refId], cv::IMREAD_GRAYSCALE);
+      viewMaskF120 = viewMaskF120 > 0;
+
+      cv::Mat freespaceMaskF120 =
+          cv::imread(freespaceFileNames[refId], cv::IMREAD_GRAYSCALE);
+      freespaceMaskF120 = freespaceMaskF120 > 0;
+
+      cv::Mat stereoMaskF120 =
+          cv::imread(stereoMaskFileNames[refId], cv::IMREAD_GRAYSCALE);
+      stereoMaskF120 = stereoMaskF120 > 0;
+
+      cv::Mat depthMaskF120 = viewMaskF120.clone();
+      depthMaskF120 = depthMaskF120 & freespaceMaskF120;
+      depthMaskF120 = depthMaskF120 & stereoMaskF120;
+
+      cv::resize(depthMaskF120, depthMaskF120,
+                 cv::Size(refImage.cols, refImage.rows));
+
       // get pointCloud as PCL
       PointCloud::Ptr cloud;
-      cloud = fEDM.getPointCloudColoredPCL(refImage, maxDepth);
+      cloud = fEDM.getPointCloudColoredPCL(refImage, maxDepth, depthMaskF120);
 
       // save pointCloud as Ply file
       std::string pointCloudFile = "fisheyeTestResultsSaic/grayscaleZNCC/"
                                    "NoOcclusionHandling/pointCloud.ply";
-      fEDM.pointCloudColoredToPly(pointCloudFile, refImage, maxDepth);
+      pcl::PLYWriter writer;
+      writer.write(pointCloudFile, *cloud, true);
 
       cv::waitKey();
     }
+  }
+}
+
+void loadData(std::string dataFolder,
+              std::vector<PSL::FishEyeCameraMatrix<double>>& cams,
+              std::vector<std::vector<double>>& dist_coeffs,
+              std::vector<std::string>& imageFileNames,
+              std::vector<std::string>& freespaceFileNames,
+              std::vector<std::string>& viewMaskFileNames,
+              std::vector<std::string>& stereoMaskFileNames)
+{
+  std::string calibFileName = dataFolder + "/calib.txt";
+
+  std::ifstream calibrationStr;
+  calibrationStr.open(calibFileName.c_str());
+
+  if (!calibrationStr.is_open())
+  {
+    PSL_THROW_EXCEPTION("Error opening calibration file calib.txt.")
+  }
+
+  int numCam;
+  calibrationStr >> numCam;
+
+  for (unsigned int i = 0; i < numCam; i++)
+  {
+    Eigen::Matrix3d K = Eigen::Matrix3d::Identity();
+    double xi;
+    std::vector<double> dist_coeff(4);
+
+    // intrinsic calibration and distortion parameters
+    calibrationStr >> K(0, 0) >> K(0, 1) >> K(0, 2);
+    calibrationStr >> K(1, 1) >> K(1, 2);
+    calibrationStr >> xi;
+    calibrationStr >> dist_coeff[0] >> dist_coeff[1] >> dist_coeff[2] >>
+        dist_coeff[3];
+
+    // extrinsic calibration
+    double roll, pitch, yaw, t_x, t_y, t_z;
+    calibrationStr >> roll >> pitch >> yaw >> t_x >> t_y >> t_z;
+
+    Eigen::Matrix3d R;
+    R = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+        Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+        Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+
+    Eigen::Vector3d C(t_x, t_y, t_z);
+
+    cams.push_back(PSL::FishEyeCameraMatrix<double>(K, R.transpose(),
+                                                    -R.transpose() * C, xi));
+    dist_coeffs.push_back(dist_coeff);
+  }
+
+  // now load the image filenames
+  std::string imageListFile = dataFolder + "/images.txt";
+
+  std::ifstream imagesStream;
+  imagesStream.open(imageListFile.c_str());
+
+  if (!imagesStream.is_open())
+  {
+    PSL_THROW_EXCEPTION("Could not load images list file")
+  }
+
+  {
+    std::string imageFileName;
+    while (imagesStream >> imageFileName)
+    {
+      imageFileNames.push_back(dataFolder + "/" + imageFileName);
+    }
+  }
+
+  if (imageFileNames.size() != numCam)
+  {
+    PSL_THROW_EXCEPTION("The dataset does not contain correct number of images")
+  }
+
+  // load freespace mask
+  std::string freespaceListFile = dataFolder + "/freespace.txt";
+
+  std::ifstream freespaceStream;
+  freespaceStream.open(freespaceListFile.c_str());
+
+  if (!freespaceStream.is_open())
+  {
+    PSL_THROW_EXCEPTION("Could not load freespace list file")
+  }
+
+  {
+    std::string freespaceFileName;
+    while (freespaceStream >> freespaceFileName)
+    {
+      freespaceFileNames.push_back(dataFolder + "/" + freespaceFileName);
+    }
+  }
+
+  if (freespaceFileNames.size() != numCam)
+  {
+    PSL_THROW_EXCEPTION(
+        "The dataset does not contain correct number of freespace masks")
+  }
+
+  // load view masks
+  std::string viewMaskListFile = dataFolder + "/view_masks.txt";
+
+  std::ifstream viewMaskStream;
+  viewMaskStream.open(viewMaskListFile.c_str());
+
+  if (!viewMaskStream.is_open())
+  {
+    PSL_THROW_EXCEPTION("Could not load view mask list file")
+  }
+
+  {
+    std::string viewMaskFileName;
+    while (viewMaskStream >> viewMaskFileName)
+    {
+      viewMaskFileNames.push_back(dataFolder + "/" + viewMaskFileName);
+    }
+  }
+
+  if (viewMaskFileNames.size() != numCam)
+  {
+    PSL_THROW_EXCEPTION(
+        "The dataset does not contain correct number of view masks")
+  }
+
+  // load stereo masks
+  std::string stereoMaskListFile = dataFolder + "/stereo_masks.txt";
+
+  std::ifstream stereoMaskStream;
+  stereoMaskStream.open(stereoMaskListFile.c_str());
+
+  if (!stereoMaskStream.is_open())
+  {
+    PSL_THROW_EXCEPTION("Could not load stereo mask list file")
+  }
+
+  {
+    std::string stereoMaskFileName;
+    while (stereoMaskStream >> stereoMaskFileName)
+    {
+      stereoMaskFileNames.push_back(dataFolder + "/" + stereoMaskFileName);
+    }
+  }
+
+  if (stereoMaskFileNames.size() != numCam)
+  {
+    PSL_THROW_EXCEPTION(
+        "The dataset does not contain correct number of stereo masks")
   }
 }
