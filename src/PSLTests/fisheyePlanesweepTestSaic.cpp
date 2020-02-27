@@ -155,7 +155,7 @@ int main(int argc, char* argv[])
         PSL::FISH_EYE_PLANE_SWEEP_SUB_PIXEL_INTERP_INVERSE);
     cFEPS.enableOutputBestDepth();
     cFEPS.enableOutputBestCosts();
-    cFEPS.enableOuputUniquenessRatio(false);
+    cFEPS.enableOuputUniquenessRatio();
     cFEPS.enableOutputCostVolume();
     cFEPS.enableOutputBestPlanes();
     cFEPS.enableSubPixel(false);
@@ -233,7 +233,12 @@ int main(int argc, char* argv[])
               static_cast<uchar>(planeInd / numPlanes * 255.0);
         }
       cv::imshow("Best Planes Index", bestPlanesImage);
-      cv::waitKey(0);
+
+      // show uniqueness ratios
+      PSL::Grid<float> uniquenessRatios;
+      uniquenessRatios = cFEPS.getUniquenessRatios();
+      PSL::displayGridZSliceAsImage(uniquenessRatios, 0, 1, "Uniqueness Ratios");
+      cv::waitKey();
 
       PSL::Grid<float> costVolume;
       costVolume = cFEPS.getCostVolume();

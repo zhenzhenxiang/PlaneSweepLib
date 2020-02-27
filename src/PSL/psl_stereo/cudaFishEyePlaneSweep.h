@@ -235,6 +235,7 @@ namespace PSL
          PSL_CUDA::DeviceBuffer<int>  bestPlaneBuffer;
          PSL_CUDA::DeviceBuffer<float>  bestPlaneCostBuffer;
          PSL_CUDA::DeviceBuffer<float> secondBestPlaneCostBuffer;
+         PSL_CUDA::DeviceBuffer<float> uniqunessRatiosBuffer;
          std::vector<PSL_CUDA::DeviceBuffer<float> > costBuffers;
 
          // Buffers for best K

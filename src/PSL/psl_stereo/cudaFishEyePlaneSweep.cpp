@@ -430,6 +430,8 @@ void CudaFishEyePlaneSweep::process(int refImgId, Grid<Eigen::Vector4d> &planes)
     {
         secondBestPlaneCostBuffer.reallocatePitched(refImg.devImg.getWidth(), refImg.devImg.getHeight());
         secondBestPlaneCostBuffer.clear(1e6);
+        uniqunessRatiosBuffer.reallocatePitched(refImg.devImg.getWidth(), refImg.devImg.getHeight());
+        uniqunessRatiosBuffer.clear(0.0f);
     }
 
 
@@ -817,9 +819,9 @@ void CudaFishEyePlaneSweep::process(int refImgId, Grid<Eigen::Vector4d> &planes)
 
     if (outputUniquenessRatioEnabled)
     {
-        computeUniquenessRatio(bestPlaneCostBuffer, secondBestPlaneCostBuffer, secondBestPlaneCostBuffer);
+        computeUniquenessRatio(bestPlaneCostBuffer, secondBestPlaneCostBuffer, uniqunessRatiosBuffer);
         uniqunessRatios = Grid<float>(bestPlaneCostBuffer.getWidth(), bestPlaneCostBuffer.getHeight());
-        secondBestPlaneCostBuffer.download(uniqunessRatios.getDataPtr(), uniqunessRatios.getWidth()*sizeof(float));
+        uniqunessRatiosBuffer.download(uniqunessRatios.getDataPtr(), uniqunessRatios.getWidth()*sizeof(float));
     }
 
     if (outputBestPlanesEnabled)
@@ -988,6 +990,9 @@ void CudaFishEyePlaneSweep::deallocateBuffers()
 
     if (secondBestPlaneCostBuffer.getAddr() != 0)
         secondBestPlaneCostBuffer.deallocate();
+
+    if (uniqunessRatiosBuffer.getAddr() != 0)
+      uniqunessRatiosBuffer.deallocate();
 
     for (unsigned int i = 0; i < costBuffers.size(); i++)
     {
