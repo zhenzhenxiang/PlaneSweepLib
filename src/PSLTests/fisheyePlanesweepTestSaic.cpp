@@ -34,6 +34,8 @@
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 void makeOutputFolder(std::string folderName)
 {
@@ -55,6 +57,9 @@ void loadData(std::string dataFolder,
               std::vector<std::string>& freespaceFileNames,
               std::vector<std::string>& viewMaskFileNames,
               std::vector<std::string>& stereoMaskFileNames);
+
+void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask);
+void dilateMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask);
 
 int main(int argc, char* argv[])
 {
@@ -92,6 +97,27 @@ int main(int argc, char* argv[])
 
   int numCam = cams.size();
 
+  // get depth mask for CAM-F120
+  int refId = 0;
+
+  cv::Mat viewMaskF120 =
+      cv::imread(viewMaskFileNames[refId], cv::IMREAD_GRAYSCALE);
+  viewMaskF120 = viewMaskF120 > 0;
+
+  erodeMask(viewMaskF120, 30, viewMaskF120);
+
+  cv::Mat freespaceMaskF120 =
+      cv::imread(freespaceFileNames[refId], cv::IMREAD_GRAYSCALE);
+  freespaceMaskF120 = freespaceMaskF120 > 0;
+
+  cv::Mat stereoMaskF120 =
+      cv::imread(stereoMaskFileNames[refId], cv::IMREAD_GRAYSCALE);
+  stereoMaskF120 = stereoMaskF120 > 0;
+
+  cv::Mat depthMaskF120 = viewMaskF120.clone();
+  depthMaskF120 = depthMaskF120 & freespaceMaskF120;
+  depthMaskF120 = depthMaskF120 & stereoMaskF120;
+
   PSL_CUDA::DeviceImage devImg;
   PSL_CUDA::CudaFishEyeImageProcessor cFEIP;
 
@@ -115,8 +141,6 @@ int main(int argc, char* argv[])
     cFEPS.enableOutputCostVolume();
     cFEPS.enableOutputBestPlanes();
     cFEPS.enableSubPixel(false);
-
-    int refId = 0;
 
     double groundDeltaRange = 0.0;
     double minZ = -groundDeltaRange / 2.0;
@@ -159,6 +183,19 @@ int main(int argc, char* argv[])
       int id = cFEPS.addDeviceImage(undistRes.first, undistRes.second);
     }
 
+    // undistort mask
+    devImg.allocatePitchedAndUpload(depthMaskF120);
+    cFEIP.setInputImg(devImg, cams[refId]);
+
+    double k1 = dist_coeffs[refId][0];
+    double k2 = dist_coeffs[refId][1];
+    double p1 = dist_coeffs[refId][2];
+    double p2 = dist_coeffs[refId][3];
+    std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>>
+        undistMask = cFEIP.undistort(0.5, 1.0, k1, k2, p1, p2);
+
+    undistMask.first.download(depthMaskF120);
+
     makeOutputFolder("fisheyeTestResultsSaic/grayscaleZNCC");
 
     {
@@ -167,6 +204,11 @@ int main(int argc, char* argv[])
       fEDM = cFEPS.getBestDepth();
       cv::Mat refImage = cFEPS.downloadImage(refId);
       cv::imshow("Reference Image", refImage);
+
+      // masked refImage
+      cv::Mat refImageMasked;
+      refImage.copyTo(refImageMasked, depthMaskF120);
+      cv::imshow("Masked Reference Image", refImageMasked);
 
       PSL::Grid<float> bestCosts;
       bestCosts = cFEPS.getBestCosts();
@@ -180,30 +222,74 @@ int main(int argc, char* argv[])
 
       float numPlanes = cFEPS.getNumPlanes() * cFEPS.getNumRollAngles() *
                         cFEPS.getNumPitchAngles();
-      cv::Mat bestPlanesImage(bestPlanes.getHeight(), bestPlanes.getWidth(),
-                              CV_8UC1);
+      cv::Mat bestPlanesImage = cv::Mat::zeros(bestPlanes.getHeight(),
+                                               bestPlanes.getWidth(), CV_8UC1);
+      cv::Mat bestPlanesIndicesImage = cv::Mat::zeros(
+          bestPlanes.getHeight(), bestPlanes.getWidth(), CV_8UC1);
+      std::vector<int> countPlanes(numPlanes, 0);
       for (int r = 0; r < bestPlanes.getHeight(); r++)
         for (int c = 0; c < bestPlanes.getWidth(); c++)
         {
-          int planeInd = sliceMat.at<int>(r, c);
-          bestPlanesImage.at<uchar>(r, c) =
-              static_cast<uchar>(planeInd / numPlanes * 255.0);
+          if (depthMaskF120.at<uchar>(r, c) > 0)
+          {
+            int planeInd = sliceMat.at<int>(r, c);
+            bestPlanesImage.at<uchar>(r, c) =
+                static_cast<uchar>(planeInd / numPlanes * 255.0);
+            bestPlanesIndicesImage.at<uchar>(r, c) = planeInd;
+
+            countPlanes[planeInd]++;
+          }
         }
       cv::imshow("Best Planes Index", bestPlanesImage);
+
+      // remove planes with the counts less than the threshold
+      int planeNumThreshold = 2000;
+      std::vector<int> filteredPlaneIndices;
+      for (int i = 0; i < numPlanes; i++)
+      {
+        if (countPlanes[i] > planeNumThreshold)
+        {
+          filteredPlaneIndices.push_back(i);
+          // cout << "valid plane index #" << i << ", " << countPlanes[i]
+          //     << " points" << endl;
+        }
+      }
+
+      cv::Mat filteredPlaneMask;
+      for (int ind : filteredPlaneIndices)
+      {
+        cv::Mat tmpMask = bestPlanesIndicesImage == ind;
+        if (filteredPlaneMask.empty())
+          filteredPlaneMask = tmpMask;
+        else
+          filteredPlaneMask |= tmpMask;
+      }
+
+      cv::Mat filteredBestPlanesImage;
+      bestPlanesImage.copyTo(filteredBestPlanesImage, filteredPlaneMask);
+      cv::imshow("Filtered Best Planes Index", filteredBestPlanesImage);
+
+      // update depth mask with filtered plane mask
+      depthMaskF120 &= filteredPlaneMask;
 
       // show uniqueness ratios
       PSL::Grid<float> uniquenessRatios;
       uniquenessRatios = cFEPS.getUniquenessRatios();
       PSL::displayGridZSliceAsImage(uniquenessRatios, 0, 1,
                                     "Uniqueness Ratios");
-      cv::waitKey();
+      cv::waitKey(1);
 
-      PSL::Grid<float> costVolume;
-      costVolume = cFEPS.getCostVolume();
-      for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+      bool showCostVolume = false;
+
+      if (showCostVolume)
       {
-        PSL::displayGridZSliceAsImage(costVolume, i, (float)0.0, (float)1.0, 30,
-                                      "Cost Volume");
+        PSL::Grid<float> costVolume;
+        costVolume = cFEPS.getCostVolume();
+        for (unsigned int i = 0; i < costVolume.getDepth(); i++)
+        {
+          PSL::displayGridZSliceAsImage(costVolume, i, (float)0.0, (float)1.0,
+                                        30, "Cost Volume");
+        }
       }
 
       makeOutputFolder(
@@ -227,58 +313,102 @@ int main(int argc, char* argv[])
       cv::blur(refImage, detectedEdges, cv::Size(3, 3));
       cv::Canny(detectedEdges, detectedEdges, 30.0, 100.0, 3);
 
-      cv::Mat edgeColInvDepth;
+      cv::Mat edgeColInvDepth, edgeColInvDepthMasked;
       colInvDepth.copyTo(edgeColInvDepth, detectedEdges);
+      edgeColInvDepth.copyTo(edgeColInvDepthMasked, depthMaskF120);
 
-      cv::Mat edgeOnColInvDepth;
+      cv::Mat edgeOnColInvDepth, edgeOnColInvDepthMasked;
       cv::Mat invDetectedEdges =
           cv::Mat::ones(detectedEdges.size(), detectedEdges.type()) * 255 -
           detectedEdges;
       colInvDepth.copyTo(edgeOnColInvDepth, invDetectedEdges);
+      edgeOnColInvDepth.copyTo(edgeOnColInvDepthMasked, depthMaskF120);
 
       cv::imwrite("fisheyeTestResultsSaic/grayscaleZNCC/"
                   "NoOcclusionHandling/edgeColInvDepth.png",
-                  edgeColInvDepth);
+                  edgeColInvDepthMasked);
       cv::imwrite("fisheyeTestResultsSaic/grayscaleZNCC/"
                   "NoOcclusionHandling/edgeOnColInvDepth.png",
-                  edgeOnColInvDepth);
+                  edgeOnColInvDepthMasked);
 
       cv::imshow("detected edges", detectedEdges);
-      cv::imshow("invert depth of the edges", edgeColInvDepth);
-      cv::imshow("edges on the depth", edgeOnColInvDepth);
-      cv::waitKey(10);
-
-      // get depth mask for CAM-F120
-      cv::Mat viewMaskF120 =
-          cv::imread(viewMaskFileNames[refId], cv::IMREAD_GRAYSCALE);
-      viewMaskF120 = viewMaskF120 > 0;
-
-      cv::Mat freespaceMaskF120 =
-          cv::imread(freespaceFileNames[refId], cv::IMREAD_GRAYSCALE);
-      freespaceMaskF120 = freespaceMaskF120 > 0;
-
-      cv::Mat stereoMaskF120 =
-          cv::imread(stereoMaskFileNames[refId], cv::IMREAD_GRAYSCALE);
-      stereoMaskF120 = stereoMaskF120 > 0;
-
-      cv::Mat depthMaskF120 = viewMaskF120.clone();
-      depthMaskF120 = depthMaskF120 & freespaceMaskF120;
-      depthMaskF120 = depthMaskF120 & stereoMaskF120;
-
-      cv::resize(depthMaskF120, depthMaskF120,
-                 cv::Size(refImage.cols, refImage.rows));
+      cv::imshow("invert depth of the edges", edgeColInvDepthMasked);
+      cv::imshow("edges on the depth", edgeOnColInvDepthMasked);
+      cv::waitKey();
 
       // get pointCloud as PCL
       PointCloud::Ptr cloud;
       cloud = fEDM.getPointCloudColoredPCL(refImage, maxDepth, depthMaskF120);
 
+      // filter the local points
+      PointCloud::Ptr filteredLocalCloud(new PointCloud());
+
+      // -- passThrough filter
+      pcl::PassThrough<Point> pass;
+      pass.setInputCloud(cloud);
+      pass.setFilterFieldName("x");
+      pass.setFilterLimits(0.1, 6.0);
+      pass.filter(*filteredLocalCloud);
+
+      // estimate local plane
+      pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+      pcl::PointIndices::Ptr planeInliners(new pcl::PointIndices);
+      // Create the segmentation object
+      pcl::SACSegmentation<Point> seg;
+      // Optional
+      seg.setOptimizeCoefficients(true);
+      // Mandatory
+      seg.setModelType(pcl::SACMODEL_PLANE);
+      seg.setMethodType(pcl::SAC_RANSAC);
+      seg.setDistanceThreshold(0.05);
+
+      seg.setInputCloud(filteredLocalCloud);
+      seg.segment(*planeInliners, *coefficients);
+
+      if (planeInliners->indices.size() == 0)
+      {
+        PCL_ERROR("Could not estimate a planar model for the given dataset.");
+        return (-1);
+      }
+
+      cout << "Plane coefficients: " << coefficients->values[0] << " "
+           << coefficients->values[1] << " " << coefficients->values[2] << " "
+           << coefficients->values[3] << endl;
+
+      cout << "Plane inliers: " << planeInliners->indices.size() << endl;
+
+      PointCloud::Ptr localPlaneCloud(new PointCloud());
+      for (int i = 0; i < planeInliners->indices.size(); i++)
+      {
+        localPlaneCloud->push_back(
+            filteredLocalCloud->points[planeInliners->indices[i]]);
+      }
+
       // save pointCloud as Ply file
       std::string pointCloudFile = "fisheyeTestResultsSaic/grayscaleZNCC/"
                                    "NoOcclusionHandling/pointCloud.ply";
+      std::string localPointCloudFile =
+          "fisheyeTestResultsSaic/grayscaleZNCC/"
+          "NoOcclusionHandling/pointCloudLocal.ply";
+      std::string localPlaneCloudFile =
+          "fisheyeTestResultsSaic/grayscaleZNCC/"
+          "NoOcclusionHandling/pointCloudLocalPlane.ply";
+
       pcl::PLYWriter writer;
       writer.write(pointCloudFile, *cloud, true);
+      writer.write(localPointCloudFile, *filteredLocalCloud, true);
+      writer.write(localPlaneCloudFile, *localPlaneCloud, true);
 
-      cv::waitKey();
+      // point cloud visualization
+      bool showPointCloud = true;
+
+      if (showPointCloud)
+      {
+        pcl::visualization::PCLVisualizer vis("vis");
+        vis.addPointCloud(localPlaneCloud, "localPlaneCloud");
+
+        vis.spin();
+      }
     }
   }
 }
@@ -431,4 +561,24 @@ void loadData(std::string dataFolder,
     PSL_THROW_EXCEPTION(
         "The dataset does not contain correct number of stereo masks")
   }
+}
+
+void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
+{
+  outMask = inMask.clone();
+
+  cv::Mat element = cv::getStructuringElement(
+      cv::MORPH_ELLIPSE, cv::Size(2 * kernelSize + 1, 2 * kernelSize + 1));
+
+  cv::morphologyEx(inMask, outMask, cv::MORPH_ERODE, element);
+}
+
+void dilateMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
+{
+  outMask = inMask.clone();
+
+  cv::Mat element = cv::getStructuringElement(
+      cv::MORPH_ELLIPSE, cv::Size(2 * kernelSize + 1, 2 * kernelSize + 1));
+
+  cv::morphologyEx(inMask, outMask, cv::MORPH_DILATE, element);
 }
