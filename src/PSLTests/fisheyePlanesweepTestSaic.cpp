@@ -195,6 +195,55 @@ int main(int argc, char* argv[])
         undistMask = cFEIP.undistort(0.5, 1.0, k1, k2, p1, p2);
 
     undistMask.first.download(depthMaskF120);
+    depthMaskF120 = depthMaskF120 > 0;
+
+    // -- clear the border of the mask in case of the undistortion effect
+    int borderWidth = 5;
+    cv::Mat borderMask = cv::Mat::zeros(depthMaskF120.rows, depthMaskF120.cols,
+                                        depthMaskF120.type());
+    cv::rectangle(borderMask, cv::Rect(borderWidth, borderWidth,
+                                       depthMaskF120.cols - 2 * borderWidth,
+                                       depthMaskF120.rows - 2 * borderWidth),
+                  cv::Scalar(255), -1);
+
+    {
+      cv::Mat tmpMask;
+      depthMaskF120.copyTo(tmpMask, borderMask);
+      depthMaskF120 = tmpMask;
+    }
+
+    // extract the boundary of the freespace
+    cv::Mat erodedFreespaceMask;
+    erodeMask(freespaceMaskF120, 1, erodedFreespaceMask);
+    cv::Mat boundaryFreespace = freespaceMaskF120 - erodedFreespaceMask;
+    cv::Mat boundaryFreespaceMasked;
+    boundaryFreespace.copyTo(boundaryFreespaceMasked, viewMaskF120);
+
+    // -- undistort boundary
+    devImg.allocatePitchedAndUpload(boundaryFreespaceMasked);
+    cFEIP.setInputImg(devImg, cams[refId]);
+
+    std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>>
+        undistBoundary = cFEIP.undistort(0.5, 1.0, k1, k2, p1, p2);
+
+    undistBoundary.first.download(boundaryFreespaceMasked);
+    boundaryFreespaceMasked = boundaryFreespaceMasked > 0;
+
+    // -- apply border mask
+    {
+      cv::Mat tmpMask;
+      boundaryFreespaceMasked.copyTo(tmpMask, borderMask);
+      boundaryFreespaceMasked = tmpMask;
+    }
+
+    std::vector<cv::Point2f> freespaceBoundaryPoints;
+    for (int r = 0; r < boundaryFreespaceMasked.rows; r++)
+      for (int c = 0; c < boundaryFreespaceMasked.cols; c++)
+        if (boundaryFreespaceMasked.at<uchar>(r, c) > 0)
+          freespaceBoundaryPoints.push_back(cv::Point2f(c, r));
+
+    cout << "Boundary freespace points: " << freespaceBoundaryPoints.size()
+         << endl;
 
     makeOutputFolder("fisheyeTestResultsSaic/grayscaleZNCC");
 
@@ -352,6 +401,11 @@ int main(int argc, char* argv[])
           detectedEdges;
       colInvDepth.copyTo(edgeOnColInvDepth, invDetectedEdges);
       edgeOnColInvDepth.copyTo(edgeOnColInvDepthMasked, depthMaskF120);
+
+      // show freespace boundary on depth image
+      for (auto p : freespaceBoundaryPoints)
+        cv::circle(edgeOnColInvDepthMasked, p, 1, cv::Scalar(255, 255, 255),
+                   -1);
 
       cv::imwrite("fisheyeTestResultsSaic/grayscaleZNCC/"
                   "NoOcclusionHandling/edgeColInvDepth.png",
