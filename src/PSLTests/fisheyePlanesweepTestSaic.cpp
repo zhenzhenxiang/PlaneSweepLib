@@ -242,19 +242,48 @@ int main(int argc, char* argv[])
         }
       cv::imshow("Best Planes Index", bestPlanesImage);
 
-      // remove planes with the counts less than the threshold
-      int planeNumThreshold = 2000;
-      std::vector<int> filteredPlaneIndices;
+      // find the consecutive planes that contain the ground plane
+      // -- find the plane with maximum pixels
+      int planeNumThreshold = 500;
+      int maxPlaneNumInd = -1;
+      int maxPlaneNum = 0;
       for (int i = 0; i < numPlanes; i++)
       {
-        if (countPlanes[i] > planeNumThreshold)
+        int cnt = countPlanes[i];
+        if (cnt > planeNumThreshold && cnt > maxPlaneNum)
         {
-          filteredPlaneIndices.push_back(i);
-          // cout << "valid plane index #" << i << ", " << countPlanes[i]
-          //     << " points" << endl;
+          maxPlaneNumInd = i;
+          maxPlaneNum = cnt;
         }
       }
 
+      if (maxPlaneNumInd < 0)
+      {
+        cout << "Failed to find enough planes more than the threshold." << endl;
+        return 1;
+      }
+
+      // -- find the consecutive planes on both sides
+      std::vector<int> filteredPlaneIndices;
+      filteredPlaneIndices.push_back(maxPlaneNumInd);
+
+      for (int i = maxPlaneNumInd - 1; i >= 0; i--)
+      {
+        if (countPlanes[i] < planeNumThreshold)
+          break;
+        else
+          filteredPlaneIndices.push_back(i);
+      }
+
+      for (int i = maxPlaneNumInd + 1; i < numPlanes; i++)
+      {
+        if (countPlanes[i] < planeNumThreshold)
+          break;
+        else
+          filteredPlaneIndices.push_back(i);
+      }
+
+      // -- construct the mask
       cv::Mat filteredPlaneMask;
       for (int ind : filteredPlaneIndices)
       {
