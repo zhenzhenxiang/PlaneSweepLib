@@ -354,7 +354,7 @@ PointCloud::Ptr FishEyeDepthMap<T, U>::getPointCloudColoredPCL(cv::Mat image, U 
         continue;
 
       Eigen::Matrix<U, 4, 1> reprojPoint = unproject(x,y);
-      if (maxDist > 0 && reprojPoint(3) == 1)
+      if (maxDist > 0 && reprojPoint(3) - 1 < 1e-6)
       {
         U dist = (reprojPoint.topRows(3) - cam.getC()).norm();
         if (dist < maxDist)
@@ -382,6 +382,68 @@ PointCloud::Ptr FishEyeDepthMap<T, U>::getPointCloudColoredPCL(cv::Mat image, U 
           cloud->points.push_back(p);
         }
       }
+    }
+
+  return cloud;
+}
+
+template <typename T, typename U>
+PointCloud::Ptr FishEyeDepthMap<T, U>::getPointCloudColoredOrganizedPCL(cv::Mat image, U maxDist, cv::Mat mask)
+{
+  PointCloud::Ptr cloud(new PointCloud());
+  cloud->width = width;
+  cloud->height = height;
+  cloud->points.resize (cloud->width * cloud->height);
+  cloud->is_dense = false;
+
+  for (unsigned int y = 0; y < height; y++)
+    for (unsigned int x = 0; x < width; x++)
+    {
+      if (!mask.empty() && mask.at<uchar>(y, x) == 0)
+      {
+        const float nanValue = std::numeric_limits<float>::quiet_NaN();
+        Point invalidPoint;
+        invalidPoint.x = invalidPoint.y = invalidPoint.z = nanValue;
+        cloud->points[y * width + x] = invalidPoint;
+        continue;
+      }
+
+      Eigen::Matrix<U, 4, 1> reprojPoint = unproject(x,y);
+      if (maxDist > 0 && reprojPoint(3) - 1 < 1e-6)
+      {
+        U dist = (reprojPoint.topRows(3) - cam.getC()).norm();
+        if (dist < maxDist)
+        {
+          Point p;
+          p.x = reprojPoint(0);
+          p.y = reprojPoint(1);
+          p.z = reprojPoint(2);
+
+          if (image.channels() == 3)
+          {
+            cv::Vec3b pixel = image.at<cv::Vec3b>(y, x);
+            p.b = pixel[0];
+            p.g = pixel[1];
+            p.r = pixel[2];
+          }
+          else if (image.channels() == 1)
+          {
+            uchar pixel = image.at<uchar>(y, x);
+            p.b = pixel;
+            p.g = pixel;
+            p.r = pixel;
+          }
+
+          cloud->points[y * width + x] = p;
+          continue;
+        }
+      }
+
+      const float nanValue = std::numeric_limits<float>::quiet_NaN();
+      Point invalidPoint;
+      invalidPoint.x = invalidPoint.y = invalidPoint.z = nanValue;
+      cloud->points[y * width + x] = invalidPoint;
+
     }
 
   return cloud;
