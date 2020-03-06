@@ -68,6 +68,7 @@ namespace PSL
         void pointCloudColoredToVRML(std::ofstream& os, cv::Mat image, U maxDist = -1);
         void pointCloudColoredToPly(std::string fileName, cv::Mat image, U maxDist = -1, cv::Mat mask = cv::Mat());
         PointCloud::Ptr getPointCloudColoredPCL(cv::Mat image, U maxDist, cv::Mat mask = cv::Mat());
+        PointCloud::Ptr getPointCloudColoredOrganizedPCL(cv::Mat image, U maxDist, cv::Mat mask = cv::Mat());
 
     private:
         boost::shared_array<T> depths;

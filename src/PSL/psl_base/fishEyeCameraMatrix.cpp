@@ -105,6 +105,37 @@ Eigen::Matrix<NumericType, 4, 1> FishEyeCameraMatrix<NumericType>::unprojectPoin
     return Eigen::Matrix<NumericType, 4, 1>::Zero();
 }
 
+// current version only unprojects points which are less than 180°
+template<typename NumericType>
+Eigen::Matrix<NumericType, 3, 1> FishEyeCameraMatrix<NumericType>::unprojectPointToRay(NumericType x, NumericType y) const
+{
+    NumericType mx = (x - cam.getK()(0,2))/cam.getK()(0,0);
+    NumericType my = (y - cam.getK()(1,2))/cam.getK()(1,1);
+
+    NumericType mxMySqr = mx*mx + my*my;
+    NumericType D = 1+(1-xi*xi)*mxMySqr;
+    if (D > 1e-5)
+    {
+        NumericType fact = (xi + sqrt(D))/(mxMySqr + 1);
+        if (fact - xi < 0.1) // if the points go to close to 180° things go crazy!
+            return Eigen::Matrix<NumericType, 3, 1>::Zero();
+
+        NumericType depth = 1.0;
+        NumericType fact2 = depth/(fact - xi);
+
+        Eigen::Matrix<NumericType, 3, 1> point;
+        point(0) = fact*fact2*mx;
+        point(1) = fact*fact2*my;
+        point(2) = depth;
+        point /= point.norm();
+
+        return point;
+
+    }
+
+    return Eigen::Matrix<NumericType, 3, 1>::Zero();
+}
+
 template<typename NumericType>
 Eigen::Matrix<NumericType, 2, 1> FishEyeCameraMatrix<NumericType>::projectPoint(NumericType x, NumericType y, NumericType z) const
 {
@@ -124,6 +155,14 @@ Eigen::Matrix<NumericType, 2, 1> FishEyeCameraMatrix<NumericType>::projectPoint(
     projPoint = (cam.getK()*point).topRows(2);
 
     return projPoint;
+}
+
+template<typename NumericType>
+Eigen::Matrix<NumericType, 4, 1> FishEyeCameraMatrix<NumericType>::localPointToGlobal(NumericType x, NumericType y, NumericType z) const
+{
+  Eigen::Matrix<NumericType, 4, 1> point;
+  point << x, y, z, 1;
+  return cam.localPoint2GlobalPoint(point);
 }
 
 template<typename NumericType>

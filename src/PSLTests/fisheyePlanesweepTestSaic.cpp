@@ -21,6 +21,7 @@
 #include <fstream>
 #include <psl_base/exception.h>
 #include <opencv2/opencv.hpp>
+#include <opencv2/flann/miniflann.hpp>
 #include <psl_cudaBase/cudaFishEyeImageProcessor.h>
 #include <psl_stereo/cudaFishEyePlaneSweep.h>
 #include <boost/filesystem.hpp>
@@ -36,6 +37,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 void makeOutputFolder(std::string folderName)
 {
@@ -467,6 +469,133 @@ int main(int argc, char* argv[])
             filteredLocalCloud->points[planeInliners->indices[i]]);
       }
 
+      // estimate plane for each freespace boundary point with its neighborhoods
+      // -- get points with valid depth
+      std::vector<cv::Point2f> nonZeroLocation;
+      for (int r = 0; r < depthMaskF120.rows; r++)
+        for (int c = 0; c < depthMaskF120.cols; c++)
+          if (depthMaskF120.at<uchar>(r, c) > 0)
+            nonZeroLocation.push_back(cv::Point2f(c, r));
+
+      // -- construct kd-tree
+      cv::flann::KDTreeIndexParams indexParams;
+      cv::flann::Index kdtree(cv::Mat(nonZeroLocation).reshape(1), indexParams);
+      cv::flann::SearchParams searchParams;
+
+      // -- get organized cloud from the depth image
+      PointCloud::Ptr cloudOrganized;
+      cloudOrganized =
+          fEDM.getPointCloudColoredOrganizedPCL(refImage, 300.0, depthMaskF120);
+
+      // -- iterate each point
+      int neighborhoodNum = 500;
+
+      std::vector<pcl::ModelCoefficients::Ptr> freespacePlanesCoefficients;
+      std::vector<cv::Point2f> validFreespaceBoundaryPoints;
+      PointCloud::Ptr freespaceCloud(new PointCloud());
+
+      for (int i = 0; i < freespaceBoundaryPoints.size(); i++)
+      {
+        // find neighborhoods
+        cv::Point2f queryPoint = freespaceBoundaryPoints[i];
+        std::vector<float> query;
+        query.push_back(queryPoint.x);
+        query.push_back(queryPoint.y);
+        std::vector<int> indices;
+        std::vector<float> dists;
+        kdtree.knnSearch(query, indices, dists, neighborhoodNum, searchParams);
+
+        // skip the points too far away
+        cv::Point2f furthestPoint = nonZeroLocation[indices[0]];
+        float depth = fEDM(furthestPoint.x, furthestPoint.y);
+        if (depth > maxDepth)
+          continue;
+
+        // get local cloud
+        PointCloud::Ptr localCloud(new PointCloud());
+        for (int j = 0; j < indices.size(); j++)
+        {
+          cv::Point2f point2D = nonZeroLocation[indices[j]];
+          Point point3D =
+              cloudOrganized
+                  ->points[point2D.y * cloudOrganized->width + point2D.x];
+
+          if (std::isnan(point3D.x))
+            continue;
+
+          localCloud->points.push_back(point3D);
+        }
+
+        // skip if not enough points in local cloud
+        int minNumPoints = neighborhoodNum / 2;
+        if (localCloud->points.size() < minNumPoints)
+          continue;
+
+        // estimate plane
+        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+        pcl::PointIndices::Ptr planeInliners(new pcl::PointIndices);
+        pcl::SACSegmentation<Point> seg;
+        seg.setOptimizeCoefficients(true);
+        seg.setModelType(pcl::SACMODEL_PLANE);
+        seg.setMethodType(pcl::SAC_RANSAC);
+        seg.setDistanceThreshold(0.5);
+
+        seg.setInputCloud(localCloud);
+        seg.segment(*planeInliners, *coefficients);
+
+        if (planeInliners->indices.size() == 0)
+        {
+          cout << "Warning: Failed to estimate the local plane for freespace "
+                  "boundary point #" << i << endl;
+          continue;
+        }
+
+        // add to buffer
+        freespacePlanesCoefficients.push_back(coefficients);
+        validFreespaceBoundaryPoints.push_back(queryPoint);
+
+        Eigen::Vector3d n;
+        n[0] = coefficients->values[0];
+        n[1] = coefficients->values[1];
+        n[2] = coefficients->values[2];
+
+        double d = coefficients->values[3];
+
+        // compute boundary point's position
+        Eigen::Vector3d pointRay;
+        pointRay =
+            fEDM.getCam().unprojectPointToRay(queryPoint.x, queryPoint.y);
+
+        Eigen::Matrix3d R;
+        R = fEDM.getCam().getR();
+        Eigen::Vector3d t;
+        t = fEDM.getCam().getT();
+
+        double scaleFactor = (-d + (n.transpose() * R.transpose() * t)[0]) /
+                             (n.transpose() * R.transpose() * pointRay)[0];
+        pointRay *= scaleFactor;
+
+        Eigen::Vector4d point;
+        point = fEDM.getCam().localPointToGlobal(pointRay[0], pointRay[1],
+                                                 pointRay[2]);
+
+        // add to cloud
+        Point pt;
+        pt.x = point[0];
+        pt.y = point[1];
+        pt.z = point[2];
+
+        cv::Vec3b pixel = refImage.at<cv::Vec3b>(queryPoint);
+        pt.b = pixel[0];
+        pt.g = pixel[1];
+        pt.r = pixel[2];
+
+        freespaceCloud->points.push_back(pt);
+      }
+
+      cout << "Valid freespace points num: " << freespaceCloud->points.size()
+           << endl;
+
       // save pointCloud as Ply file
       std::string pointCloudFile = "fisheyeTestResultsSaic/grayscaleZNCC/"
                                    "NoOcclusionHandling/pointCloud.ply";
@@ -476,11 +605,15 @@ int main(int argc, char* argv[])
       std::string localPlaneCloudFile =
           "fisheyeTestResultsSaic/grayscaleZNCC/"
           "NoOcclusionHandling/pointCloudLocalPlane.ply";
+      std::string freespaceCloudFile =
+          "fisheyeTestResultsSaic/grayscaleZNCC/"
+          "NoOcclusionHandling/pointCloudFreespace.ply";
 
       pcl::PLYWriter writer;
       writer.write(pointCloudFile, *cloud, true);
       writer.write(localPointCloudFile, *filteredLocalCloud, true);
       writer.write(localPlaneCloudFile, *localPlaneCloud, true);
+      writer.write(freespaceCloudFile, *freespaceCloud, true);
 
       // point cloud visualization
       bool showPointCloud = true;
@@ -489,6 +622,7 @@ int main(int argc, char* argv[])
       {
         pcl::visualization::PCLVisualizer vis("vis");
         vis.addPointCloud(localPlaneCloud, "localPlaneCloud");
+        vis.addPointCloud(freespaceCloud, "freespaceCloud");
 
         vis.spin();
       }

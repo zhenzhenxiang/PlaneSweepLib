@@ -43,7 +43,9 @@ namespace PSL
         const Eigen::Matrix<NumericType, 3, 1>& getC() const;
 
         Eigen::Matrix<NumericType, 4, 1> unprojectPoint(NumericType x, NumericType y, NumericType depth) const;
+        Eigen::Matrix<NumericType, 3, 1> unprojectPointToRay(NumericType x, NumericType y) const;
         Eigen::Matrix<NumericType, 2, 1> projectPoint(NumericType x, NumericType y, NumericType z) const;
+        Eigen::Matrix<NumericType, 4, 1> localPointToGlobal(NumericType x, NumericType y, NumericType z) const;
 
     private:
         CameraMatrix<NumericType> cam;
