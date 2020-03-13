@@ -57,6 +57,8 @@ int main(int argc, char* argv[])
   double xi;
   double k1, k2, p1, p2;
   double roll, pitch, yaw, t_x, t_y, t_z;
+  double roll_cam2lidar, pitch_cam2lidar, yaw_cam2lidar, t_x_cam2lidar,
+      t_y_cam2lidar, t_z_cam2lidar;
 
   dataFile >> descpt >> imageFile;
 
@@ -66,6 +68,9 @@ int main(int argc, char* argv[])
 
   dataFile >> descpt >> roll >> pitch >> yaw >> t_x >> t_y >> t_z;
 
+  dataFile >> descpt >> roll_cam2lidar >> pitch_cam2lidar >> yaw_cam2lidar >>
+      t_x_cam2lidar >> t_y_cam2lidar >> t_z_cam2lidar;
+
   dataFile >> descpt >> pointCloudFile;
 
   dataFile >> descpt >> freespaceFile;
@@ -74,17 +79,35 @@ int main(int argc, char* argv[])
   cv::Mat image = cv::imread(imageFile);
 
   // -- set camera
+  Eigen::Matrix3d R_cam2vehicle;
+  R_cam2vehicle = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+                  Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+                  Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+
+  Eigen::Vector3d t_cam2vehicle(t_x, t_y, t_z);
+
+  Eigen::Matrix4d T_cam2vehicle = Eigen::Matrix4d::Identity();
+  T_cam2vehicle.topLeftCorner(3, 3) = R_cam2vehicle;
+  T_cam2vehicle.topRightCorner(3, 1) = t_cam2vehicle;
+
+  Eigen::Matrix3d R_vehicle2cam = R_cam2vehicle.transpose();
+  Eigen::Vector3d t_vehicle2cam = -R_cam2vehicle.transpose() * t_cam2vehicle;
+
+  PSL::FishEyeCameraMatrix<double> cam(K, R_vehicle2cam, t_vehicle2cam, xi);
+
+  // -- set lidar
   Eigen::Matrix3d R_cam2lidar;
-  R_cam2lidar = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
-                Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-                Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+  R_cam2lidar = Eigen::AngleAxisd(yaw_cam2lidar, Eigen::Vector3d::UnitZ()) *
+                Eigen::AngleAxisd(pitch_cam2lidar, Eigen::Vector3d::UnitY()) *
+                Eigen::AngleAxisd(roll_cam2lidar, Eigen::Vector3d::UnitX());
 
-  Eigen::Vector3d t_cam2lidar(t_x, t_y, t_z);
+  Eigen::Vector3d t_cam2lidar(t_x_cam2lidar, t_y_cam2lidar, t_z_cam2lidar);
 
-  Eigen::Matrix3d R_lidar2cam = R_cam2lidar.transpose();
-  Eigen::Vector3d t_lidar2cam = -R_cam2lidar.transpose() * t_cam2lidar;
+  Eigen::Matrix4d T_cam2lidar = Eigen::Matrix4d::Identity();
+  T_cam2lidar.topLeftCorner(3, 3) = R_cam2lidar;
+  T_cam2lidar.topRightCorner(3, 1) = t_cam2lidar;
 
-  PSL::FishEyeCameraMatrix<double> cam(K, R_lidar2cam, t_lidar2cam, xi);
+  Eigen::Matrix4d T_lidar2vehicle = T_cam2vehicle * T_cam2lidar.inverse();
 
   // -- load point cloud
   pcl::PLYReader pclReader;
@@ -100,6 +123,11 @@ int main(int argc, char* argv[])
     cout << "Data loading finished. Total valid lidar points: "
          << inCloud->points.size() << endl;
 
+  // -- transform to vehicle frame
+  PointCloud::Ptr inCloudVehicle(new PointCloud());
+  pcl::transformPointCloud(*inCloud, *inCloudVehicle,
+                           T_lidar2vehicle.cast<float>());
+
   // -- load freespace mask
   cv::Mat freespaceImage = cv::imread(freespaceFile, cv::IMREAD_GRAYSCALE);
 
@@ -107,10 +135,16 @@ int main(int argc, char* argv[])
   double minDepth = 3.0;
   double maxDepth = 150.0;
   PointCloud::Ptr freespaceCloud(new PointCloud());
-  getFreespaceCloud(inCloud, minDepth, maxDepth, cam, freespaceImage,
+  getFreespaceCloud(inCloudVehicle, minDepth, maxDepth, cam, freespaceImage,
                     freespaceCloud);
 
   cout << "Freespace cloud points: " << freespaceCloud->points.size() << endl;
+
+  // save to ply file
+  pcl::PLYWriter writer;
+  string freespaceCloudFileName = pointCloudFile.replace(
+      pointCloudFile.size() - 4, pointCloudFile.size(), "_freespace.ply");
+  writer.write(freespaceCloudFileName, *freespaceCloud, true);
 
   // plane segmentation
   pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
@@ -165,7 +199,7 @@ int main(int argc, char* argv[])
   cv::Mat_<double> depthImage(image.rows, image.cols, -1.0);
   cv::Mat_<double> depthPlaneImage(image.rows, image.cols, -1.0);
 
-  getDepthImage(inCloud, minDepth, maxDepth, cam, depthImage);
+  getDepthImage(inCloudVehicle, minDepth, maxDepth, cam, depthImage);
   getDepthImage(planeCloud, minDepth, maxDepth, cam, depthPlaneImage);
 
   // visualize depth image
@@ -188,11 +222,7 @@ void getDepthImage(PointCloud::ConstPtr cloud, double minDepth, double maxDepth,
     p3Dlidar << cloud->points[i].x, cloud->points[i].y, cloud->points[i].z;
 
     // ignore points too close or too far
-    Eigen::Matrix3d R_lidar2cam = cam.getR();
-    Eigen::Vector3d t_lidar2cam = cam.getT();
-    Eigen::Vector3d p3Dcam;
-    p3Dcam = R_lidar2cam * p3Dlidar + t_lidar2cam;
-    double curDepth = p3Dcam(2);
+    double curDepth = p3Dlidar(0);
 
     if (curDepth < minDepth || curDepth > maxDepth)
       continue;
