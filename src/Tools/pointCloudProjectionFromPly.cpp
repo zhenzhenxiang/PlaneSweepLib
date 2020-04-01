@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <psl_base/common.h>
 #include <opencv2/ccalib/omnidir.hpp>
+#include <omp.h>
 
 #include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
@@ -216,6 +217,7 @@ void getDepthImage(PointCloud::ConstPtr cloud, double minDepth, double maxDepth,
                    PSL::FishEyeCameraMatrix<double>& cam,
                    cv::Mat_<double>& depthImage)
 {
+#pragma omp parallel for
   for (int i = 0; i < cloud->points.size(); i++)
   {
     Eigen::Vector3d p3Dlidar;
@@ -247,6 +249,7 @@ void getDepthImage(PointCloud::ConstPtr cloud, double minDepth, double maxDepth,
 
 void displayDepthImage(const cv::Mat_<double>& depthImage, cv::Mat& undistImage)
 {
+#pragma omp parallel for collapse(2)
   for (int i = 0; i < depthImage.rows; i++)
     for (int j = 0; j < depthImage.cols; j++)
     {
@@ -276,6 +279,15 @@ void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
                        const cv::Mat& freespaceImage,
                        PointCloud::Ptr freespaceCloud)
 {
+// ref:
+// https://stackoverflow.com/questions/18669296/c-openmp-parallel-for-loop-alternatives-to-stdvector/18671256#18671256
+#pragma omp declare reduction(                                                 \
+    merge : std::vector <                                                      \
+    Point > : omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
+
+  std::vector<Point> points;
+
+#pragma omp parallel for reduction(merge : points)
   for (int i = 0; i < cloud->points.size(); i++)
   {
     Eigen::Vector3d p3Dlidar;
@@ -305,6 +317,9 @@ void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
     // add free point
     uchar value = freespaceImage.at<uchar>(row, col);
     if (value > 250)
-      freespaceCloud->points.push_back(cloud->points[i]);
+      points.push_back(cloud->points[i]);
   }
+
+  for (auto& p : points)
+    freespaceCloud->points.push_back(p);
 }
