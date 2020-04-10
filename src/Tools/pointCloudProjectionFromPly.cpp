@@ -33,7 +33,7 @@ void displayDepthImage(const cv::Mat_<double>& depthImage,
                        cv::Mat& undistImage);
 void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
                        double maxDepth, PSL::FishEyeCameraMatrix<double>& cam,
-                       const cv::Mat& freespaceImage,
+                       const cv::Mat& freespaceImage, const cv::Mat& rawImage,
                        PointCloud::Ptr freespaceCloud);
 void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask);
 void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
@@ -153,20 +153,20 @@ int main(int argc, char* argv[])
   // -- load freespace mask
   cv::Mat freespaceImage = cv::imread(freespaceFile, cv::IMREAD_GRAYSCALE);
 
-  // -- extract the boundary of the freespace
-  cv::Mat erodedFreespaceMask;
-  erodeMask(freespaceImage, 1, erodedFreespaceMask);
-  cv::Mat boundaryFreespace = freespaceImage - erodedFreespaceMask;
-
-  // -- undistort boundary
-  devImg.allocatePitchedAndUpload(boundaryFreespace);
+  // -- undistort mask
+  devImg.allocatePitchedAndUpload(freespaceImage);
   cFEIP.setInputImg(devImg, cam);
 
   std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>>
       undistBoundary = cFEIP.undistort(1.0, 1.0, k1, k2, p1, p2);
 
-  undistBoundary.first.download(boundaryFreespace);
-  boundaryFreespace = boundaryFreespace > 0;
+  undistBoundary.first.download(freespaceImage);
+  freespaceImage = freespaceImage > 0;
+
+  // -- extract the boundary of the freespace
+  cv::Mat erodedFreespaceMask;
+  erodeMask(freespaceImage, 1, erodedFreespaceMask);
+  cv::Mat boundaryFreespace = freespaceImage - erodedFreespaceMask;
 
   // -- apply border mask
   int borderWidth = 5;
@@ -196,7 +196,7 @@ int main(int argc, char* argv[])
   double maxDepth = 150.0;
   PointCloud::Ptr freespaceCloud(new PointCloud());
   getFreespaceCloud(inCloudVehicle, minDepth, maxDepth, cam, freespaceImage,
-                    freespaceCloud);
+                    undistImage, freespaceCloud);
 
   cout << "Freespace cloud points: " << freespaceCloud->points.size() << endl;
 
@@ -341,7 +341,7 @@ void displayDepthImage(const cv::Mat_<double>& depthImage, cv::Mat& undistImage)
 
 void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
                        double maxDepth, PSL::FishEyeCameraMatrix<double>& cam,
-                       const cv::Mat& freespaceImage,
+                       const cv::Mat& freespaceImage, const cv::Mat& rawImage,
                        PointCloud::Ptr freespaceCloud)
 {
 // ref:
@@ -359,10 +359,10 @@ void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
     p3Dlidar << cloud->points[i].x, cloud->points[i].y, cloud->points[i].z;
 
     // ignore points too close or too far
-    Eigen::Matrix3d R_lidar2cam = cam.getR();
-    Eigen::Vector3d t_lidar2cam = cam.getT();
+    Eigen::Matrix3d R_vehicle2cam = cam.getR();
+    Eigen::Vector3d t_vehicle2cam = cam.getT();
     Eigen::Vector3d p3Dcam;
-    p3Dcam = R_lidar2cam * p3Dlidar + t_lidar2cam;
+    p3Dcam = R_vehicle2cam * p3Dlidar + t_vehicle2cam;
     double curDepth = p3Dcam(2);
 
     if (curDepth < minDepth || curDepth > maxDepth)
@@ -382,7 +382,16 @@ void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
     // add free point
     uchar value = freespaceImage.at<uchar>(row, col);
     if (value > 250)
-      points.push_back(cloud->points[i]);
+    {
+      cv::Vec3b pixel = rawImage.at<cv::Vec3b>(row, col);
+
+      Point tmpPoint = cloud->points[i];
+      tmpPoint.b = pixel[0];
+      tmpPoint.g = pixel[1];
+      tmpPoint.r = pixel[2];
+
+      points.push_back(tmpPoint);
+    }
   }
 
   for (auto& p : points)
