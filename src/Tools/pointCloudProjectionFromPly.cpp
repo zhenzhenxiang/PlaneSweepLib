@@ -39,7 +39,7 @@ void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask);
 void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
                        const PSL::FishEyeCameraMatrix<double>& cam,
                        const cv::Mat& image, Eigen::Vector3d n, double d,
-                       PointCloud::Ptr outPoints);
+                       double min, double max, PointCloud::Ptr outPoints);
 
 int main(int argc, char* argv[])
 {
@@ -250,8 +250,8 @@ int main(int argc, char* argv[])
   double d = coefficients->values[3];
 
   PointCloud::Ptr freespaceCloudVision(new PointCloud());
-  backProjectPoints(freespaceBoundaryPoints, cam, undistImage, n, d,
-                    freespaceCloudVision);
+  backProjectPoints(freespaceBoundaryPoints, cam, undistImage, n, d, minDepth,
+                    maxDepth, freespaceCloudVision);
 
   // save to ply file
   string freespaceCloudVisionFileName = pointCloudFile;
@@ -411,7 +411,7 @@ void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
 void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
                        const PSL::FishEyeCameraMatrix<double>& cam,
                        const cv::Mat& image, Eigen::Vector3d n, double d,
-                       PointCloud::Ptr outPoints)
+                       double min, double max, PointCloud::Ptr outPoints)
 {
 
 #pragma omp declare reduction(                                                 \
@@ -438,6 +438,10 @@ void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
 
     Eigen::Vector4d point;
     point = cam.localPointToGlobal(pointRay[0], pointRay[1], pointRay[2]);
+
+    // ignore points out of thresholds
+    if (point[0] < min || point[0] > max)
+      continue;
 
     // convert to pcl type
     Point pt;
