@@ -35,6 +35,11 @@ void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
                        double maxDepth, PSL::FishEyeCameraMatrix<double>& cam,
                        const cv::Mat& freespaceImage,
                        PointCloud::Ptr freespaceCloud);
+void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask);
+void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
+                       const PSL::FishEyeCameraMatrix<double>& cam,
+                       const cv::Mat& image, Eigen::Vector3d n, double d,
+                       PointCloud::Ptr outPoints);
 
 int main(int argc, char* argv[])
 {
@@ -96,6 +101,22 @@ int main(int argc, char* argv[])
 
   PSL::FishEyeCameraMatrix<double> cam(K, R_vehicle2cam, t_vehicle2cam, xi);
 
+  // undistort image
+  PSL_CUDA::DeviceImage devImg;
+  PSL_CUDA::CudaFishEyeImageProcessor cFEIP;
+
+  cv::cvtColor(image, image, CV_BGR2GRAY);
+  devImg.allocatePitchedAndUpload(image);
+  cFEIP.setInputImg(devImg, cam);
+
+  pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>> undistRes =
+      cFEIP.undistort(1.0, 1.0, k1, k2, p1, p2);
+
+  cv::Mat undistImage;
+  undistRes.first.download(undistImage);
+
+  cv::cvtColor(undistImage, undistImage, CV_GRAY2BGR);
+
   // -- set lidar
   Eigen::Matrix3d R_cam2lidar;
   R_cam2lidar = Eigen::AngleAxisd(yaw_cam2lidar, Eigen::Vector3d::UnitZ()) *
@@ -132,6 +153,44 @@ int main(int argc, char* argv[])
   // -- load freespace mask
   cv::Mat freespaceImage = cv::imread(freespaceFile, cv::IMREAD_GRAYSCALE);
 
+  // -- extract the boundary of the freespace
+  cv::Mat erodedFreespaceMask;
+  erodeMask(freespaceImage, 1, erodedFreespaceMask);
+  cv::Mat boundaryFreespace = freespaceImage - erodedFreespaceMask;
+
+  // -- undistort boundary
+  devImg.allocatePitchedAndUpload(boundaryFreespace);
+  cFEIP.setInputImg(devImg, cam);
+
+  std::pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>>
+      undistBoundary = cFEIP.undistort(1.0, 1.0, k1, k2, p1, p2);
+
+  undistBoundary.first.download(boundaryFreespace);
+  boundaryFreespace = boundaryFreespace > 0;
+
+  // -- apply border mask
+  int borderWidth = 5;
+  cv::Mat borderMask = cv::Mat::zeros(
+      boundaryFreespace.rows, boundaryFreespace.cols, boundaryFreespace.type());
+  cv::rectangle(borderMask, cv::Rect(borderWidth, borderWidth,
+                                     boundaryFreespace.cols - 2 * borderWidth,
+                                     boundaryFreespace.rows - 2 * borderWidth),
+                cv::Scalar(255), -1);
+  {
+    cv::Mat tmpMask;
+    boundaryFreespace.copyTo(tmpMask, borderMask);
+    boundaryFreespace = tmpMask;
+  }
+
+  std::vector<cv::Point2f> freespaceBoundaryPoints;
+  for (int r = 0; r < boundaryFreespace.rows; r++)
+    for (int c = 0; c < boundaryFreespace.cols; c++)
+      if (boundaryFreespace.at<uchar>(r, c) > 0)
+        freespaceBoundaryPoints.push_back(cv::Point2f(c, r));
+
+  cout << "Boundary freespace points: " << freespaceBoundaryPoints.size()
+       << endl;
+
   // get point cloud in freespace
   double minDepth = 3.0;
   double maxDepth = 150.0;
@@ -143,8 +202,10 @@ int main(int argc, char* argv[])
 
   // save to ply file
   pcl::PLYWriter writer;
-  string freespaceCloudFileName = pointCloudFile.replace(
-      pointCloudFile.size() - 4, pointCloudFile.size(), "_freespace.ply");
+  string freespaceCloudFileName = pointCloudFile;
+  freespaceCloudFileName.replace(freespaceCloudFileName.size() - 4,
+                                 freespaceCloudFileName.size(),
+                                 "_freespace.ply");
   writer.write(freespaceCloudFileName, *freespaceCloud, true);
 
   // plane segmentation
@@ -180,21 +241,25 @@ int main(int argc, char* argv[])
     planeCloud->push_back(freespaceCloud->points[planeInliners->indices[i]]);
   }
 
-  // undistort image
-  PSL_CUDA::DeviceImage devImg;
-  PSL_CUDA::CudaFishEyeImageProcessor cFEIP;
+  // back-project freespace points
+  Eigen::Vector3d n;
+  n[0] = coefficients->values[0];
+  n[1] = coefficients->values[1];
+  n[2] = coefficients->values[2];
 
-  cv::cvtColor(image, image, CV_BGR2GRAY);
-  devImg.allocatePitchedAndUpload(image);
-  cFEIP.setInputImg(devImg, cam);
+  double d = coefficients->values[3];
 
-  pair<PSL_CUDA::DeviceImage, PSL::FishEyeCameraMatrix<double>> undistRes =
-      cFEIP.undistort(1.0, 1.0, k1, k2, p1, p2);
+  PointCloud::Ptr freespaceCloudVision(new PointCloud());
+  backProjectPoints(freespaceBoundaryPoints, cam, undistImage, n, d,
+                    freespaceCloudVision);
 
-  cv::Mat undistImage;
-  undistRes.first.download(undistImage);
+  // save to ply file
+  string freespaceCloudVisionFileName = pointCloudFile;
 
-  cv::cvtColor(undistImage, undistImage, CV_GRAY2BGR);
+  freespaceCloudVisionFileName.replace(freespaceCloudVisionFileName.size() - 4,
+                                       freespaceCloudVisionFileName.size(),
+                                       "_freespace_vision.ply");
+  writer.write(freespaceCloudVisionFileName, *freespaceCloudVision, true);
 
   // get depth image
   cv::Mat_<double> depthImage(image.rows, image.cols, -1.0);
@@ -322,4 +387,63 @@ void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
 
   for (auto& p : points)
     freespaceCloud->points.push_back(p);
+}
+
+void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
+{
+  outMask = inMask.clone();
+
+  cv::Mat element = cv::getStructuringElement(
+      cv::MORPH_ELLIPSE, cv::Size(2 * kernelSize + 1, 2 * kernelSize + 1));
+
+  cv::morphologyEx(inMask, outMask, cv::MORPH_ERODE, element);
+}
+
+void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
+                       const PSL::FishEyeCameraMatrix<double>& cam,
+                       const cv::Mat& image, Eigen::Vector3d n, double d,
+                       PointCloud::Ptr outPoints)
+{
+
+#pragma omp declare reduction(                                                 \
+    merge : std::vector <                                                      \
+    Point > : omp_out.insert(omp_out.end(), omp_in.begin(), omp_in.end()))
+
+  std::vector<Point> points;
+
+  Eigen::Matrix3d R;
+  R = cam.getR();
+  Eigen::Vector3d t;
+  t = cam.getT();
+
+#pragma omp parallel for reduction(merge : points)
+  for (size_t i = 0; i < inPoints.size(); i++)
+  {
+    // compute boundary point's position
+    Eigen::Vector3d pointRay;
+    pointRay = cam.unprojectPointToRay(inPoints[i].x, inPoints[i].y);
+
+    double scaleFactor = (-d + (n.transpose() * R.transpose() * t)[0]) /
+                         (n.transpose() * R.transpose() * pointRay)[0];
+    pointRay *= scaleFactor;
+
+    Eigen::Vector4d point;
+    point = cam.localPointToGlobal(pointRay[0], pointRay[1], pointRay[2]);
+
+    // convert to pcl type
+    Point pt;
+    pt.x = point[0];
+    pt.y = point[1];
+    pt.z = point[2];
+
+    cv::Vec3b pixel = image.at<cv::Vec3b>(inPoints[i]);
+    pt.b = pixel[0];
+    pt.g = pixel[1];
+    pt.r = pixel[2];
+
+    points.push_back(pt);
+  }
+
+  for (auto& p : points)
+    outPoints->points.push_back(p);
 }
