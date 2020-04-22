@@ -13,7 +13,6 @@ link_directories(${CMAKE_CURRENT_SOURCE_DIR}/pclomp/lib)
 
 add_executable(searchCameraLocation searchCameraLocation.cpp)
 add_executable(searchScanLocation searchScanLocation.cpp)
-add_executable(syncCameraLidar syncCameraLidar.cpp)
 
 link_libraries(PSL ${Boost_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
 
@@ -27,3 +26,6 @@ add_executable(queryLocalPointClouds queryLocalPointClouds.cpp)
 target_link_libraries (queryLocalPointClouds ndt_omp)
 
 add_executable(pointCloudProjectionFromPly pointCloudProjectionFromPly.cpp)
+
+add_executable(syncCameraLidar syncCameraLidar.cpp)
+target_link_libraries (syncCameraLidar ndt_omp)
