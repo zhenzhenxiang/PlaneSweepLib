@@ -62,7 +62,6 @@ int main(int argc, char* argv[])
   Eigen::Matrix3d K = Eigen::Matrix3d::Identity();
   double xi;
   double k1, k2, p1, p2;
-  double roll, pitch, yaw, t_x, t_y, t_z;
   double roll_cam2lidar, pitch_cam2lidar, yaw_cam2lidar, t_x_cam2lidar,
       t_y_cam2lidar, t_z_cam2lidar;
 
@@ -71,8 +70,6 @@ int main(int argc, char* argv[])
   dataFile >> descpt >> K(0, 0) >> K(0, 1) >> K(0, 2) >> K(1, 1) >> K(1, 2);
   dataFile >> xi;
   dataFile >> k1 >> k2 >> p1 >> p2;
-
-  dataFile >> descpt >> roll >> pitch >> yaw >> t_x >> t_y >> t_z;
 
   dataFile >> descpt >> roll_cam2lidar >> pitch_cam2lidar >> yaw_cam2lidar >>
       t_x_cam2lidar >> t_y_cam2lidar >> t_z_cam2lidar;
@@ -85,21 +82,21 @@ int main(int argc, char* argv[])
   cv::Mat image = cv::imread(imageFile);
 
   // -- set camera
-  Eigen::Matrix3d R_cam2vehicle;
-  R_cam2vehicle = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
-                  Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
-                  Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+  Eigen::Matrix3d R_cam2lidar;
+  R_cam2lidar = Eigen::AngleAxisd(yaw_cam2lidar, Eigen::Vector3d::UnitZ()) *
+                  Eigen::AngleAxisd(pitch_cam2lidar, Eigen::Vector3d::UnitY()) *
+                  Eigen::AngleAxisd(roll_cam2lidar, Eigen::Vector3d::UnitX());
 
-  Eigen::Vector3d t_cam2vehicle(t_x, t_y, t_z);
+  Eigen::Vector3d t_cam2lidar(t_x_cam2lidar, t_y_cam2lidar, t_z_cam2lidar);
 
-  Eigen::Matrix4d T_cam2vehicle = Eigen::Matrix4d::Identity();
-  T_cam2vehicle.topLeftCorner(3, 3) = R_cam2vehicle;
-  T_cam2vehicle.topRightCorner(3, 1) = t_cam2vehicle;
+  Eigen::Matrix4d T_cam2lidar = Eigen::Matrix4d::Identity();
+  T_cam2lidar.topLeftCorner(3, 3) = R_cam2lidar;
+  T_cam2lidar.topRightCorner(3, 1) = t_cam2lidar;
 
-  Eigen::Matrix3d R_vehicle2cam = R_cam2vehicle.transpose();
-  Eigen::Vector3d t_vehicle2cam = -R_cam2vehicle.transpose() * t_cam2vehicle;
+  Eigen::Matrix3d R_lidar2cam = R_cam2lidar.transpose();
+  Eigen::Vector3d t_lidar2cam = -R_cam2lidar.transpose() * t_cam2lidar;
 
-  PSL::FishEyeCameraMatrix<double> cam(K, R_vehicle2cam, t_vehicle2cam, xi);
+  PSL::FishEyeCameraMatrix<double> cam(K, R_lidar2cam, t_lidar2cam, xi);
 
   // undistort image
   PSL_CUDA::DeviceImage devImg;
@@ -117,20 +114,6 @@ int main(int argc, char* argv[])
 
   cv::cvtColor(undistImage, undistImage, CV_GRAY2BGR);
 
-  // -- set lidar
-  Eigen::Matrix3d R_cam2lidar;
-  R_cam2lidar = Eigen::AngleAxisd(yaw_cam2lidar, Eigen::Vector3d::UnitZ()) *
-                Eigen::AngleAxisd(pitch_cam2lidar, Eigen::Vector3d::UnitY()) *
-                Eigen::AngleAxisd(roll_cam2lidar, Eigen::Vector3d::UnitX());
-
-  Eigen::Vector3d t_cam2lidar(t_x_cam2lidar, t_y_cam2lidar, t_z_cam2lidar);
-
-  Eigen::Matrix4d T_cam2lidar = Eigen::Matrix4d::Identity();
-  T_cam2lidar.topLeftCorner(3, 3) = R_cam2lidar;
-  T_cam2lidar.topRightCorner(3, 1) = t_cam2lidar;
-
-  Eigen::Matrix4d T_lidar2vehicle = T_cam2vehicle * T_cam2lidar.inverse();
-
   // -- load point cloud
   pcl::PLYReader pclReader;
   PointCloud::Ptr inCloud(new PointCloud());
@@ -144,11 +127,6 @@ int main(int argc, char* argv[])
   else
     cout << "Data loading finished. Total valid lidar points: "
          << inCloud->points.size() << endl;
-
-  // -- transform to vehicle frame
-  PointCloud::Ptr inCloudVehicle(new PointCloud());
-  pcl::transformPointCloud(*inCloud, *inCloudVehicle,
-                           T_lidar2vehicle.cast<float>());
 
   // -- load freespace mask
   cv::Mat freespaceImage = cv::imread(freespaceFile, cv::IMREAD_GRAYSCALE);
@@ -195,7 +173,7 @@ int main(int argc, char* argv[])
   double minDepth = 3.0;
   double maxDepth = 150.0;
   PointCloud::Ptr freespaceCloud(new PointCloud());
-  getFreespaceCloud(inCloudVehicle, minDepth, maxDepth, cam, freespaceImage,
+  getFreespaceCloud(inCloud, minDepth, maxDepth, cam, freespaceImage,
                     undistImage, freespaceCloud);
 
   cout << "Freespace cloud points: " << freespaceCloud->points.size() << endl;
@@ -265,7 +243,7 @@ int main(int argc, char* argv[])
   cv::Mat_<double> depthImage(image.rows, image.cols, -1.0);
   cv::Mat_<double> depthPlaneImage(image.rows, image.cols, -1.0);
 
-  getDepthImage(inCloudVehicle, minDepth, maxDepth, cam, depthImage);
+  getDepthImage(inCloud, minDepth, maxDepth, cam, depthImage);
   getDepthImage(planeCloud, minDepth, maxDepth, cam, depthPlaneImage);
 
   // visualize depth image
@@ -289,7 +267,7 @@ void getDepthImage(PointCloud::ConstPtr cloud, double minDepth, double maxDepth,
     p3Dlidar << cloud->points[i].x, cloud->points[i].y, cloud->points[i].z;
 
     // ignore points too close or too far
-    double curDepth = p3Dlidar(0);
+    double curDepth = p3Dlidar(1);
 
     if (curDepth < minDepth || curDepth > maxDepth)
       continue;
@@ -359,13 +337,7 @@ void getFreespaceCloud(PointCloud::ConstPtr cloud, double minDepth,
     p3Dlidar << cloud->points[i].x, cloud->points[i].y, cloud->points[i].z;
 
     // ignore points too close or too far
-    Eigen::Matrix3d R_vehicle2cam = cam.getR();
-    Eigen::Vector3d t_vehicle2cam = cam.getT();
-    Eigen::Vector3d p3Dcam;
-    p3Dcam = R_vehicle2cam * p3Dlidar + t_vehicle2cam;
-    double curDepth = p3Dcam(2);
-
-    if (curDepth < minDepth || curDepth > maxDepth)
+    if (p3Dlidar(1) < minDepth || p3Dlidar(1) > maxDepth)
       continue;
 
     // get corresponding 2D point index on the image
@@ -440,7 +412,7 @@ void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
     point = cam.localPointToGlobal(pointRay[0], pointRay[1], pointRay[2]);
 
     // ignore points out of thresholds
-    if (point[0] < min || point[0] > max)
+    if (scaleFactor < 0 || point[1] < min || point[1] > max)
       continue;
 
     // convert to pcl type
@@ -449,10 +421,20 @@ void backProjectPoints(const std::vector<cv::Point2f>& inPoints,
     pt.y = point[1];
     pt.z = point[2];
 
-    cv::Vec3b pixel = image.at<cv::Vec3b>(inPoints[i]);
-    pt.b = pixel[0];
-    pt.g = pixel[1];
-    pt.r = pixel[2];
+    if (image.channels() == 3)
+    {
+      cv::Vec3b pixel = image.at<cv::Vec3b>(inPoints[i]);
+      pt.b = pixel[0];
+      pt.g = pixel[1];
+      pt.r = pixel[2];
+    }
+    else if (image.channels() == 1)
+    {
+      uchar pixel = image.at<uchar>(inPoints[i]);
+      pt.b = pixel;
+      pt.g = pixel;
+      pt.r = pixel;
+    }
 
     points.push_back(pt);
   }
