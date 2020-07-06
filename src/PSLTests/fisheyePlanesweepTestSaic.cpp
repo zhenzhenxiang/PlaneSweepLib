@@ -53,24 +53,28 @@ void makeOutputFolder(std::string folderName)
 }
 
 void loadData(std::string dataFolder,
-              std::vector<PSL::FishEyeCameraMatrix<double>>& cams,
-              std::vector<std::vector<double>>& dist_coeffs,
-              std::vector<std::string>& imageFileNames,
-              std::vector<std::string>& freespaceFileNames,
-              std::vector<std::string>& viewMaskFileNames,
-              std::vector<std::string>& stereoMaskFileNames);
+              std::vector<PSL::FishEyeCameraMatrix<double>> &cams,
+              std::vector<std::vector<double>> &dist_coeffs,
+              Eigen::Vector4d &plane_in_lidar_frame,
+              std::vector<std::string> &imageFileNames,
+              std::vector<std::string> &freespaceFileNames,
+              std::vector<std::string> &viewMaskFileNames,
+              std::vector<std::string> &stereoMaskFileNames);
 
-void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask);
-void dilateMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask);
+void erodeMask(cv::Mat &inMask, int kernelSize, cv::Mat &outMask);
+void dilateMask(cv::Mat &inMask, int kernelSize, cv::Mat &outMask);
 
-int main(int argc, char* argv[])
+bool unprojectToPlane(const PSL::FishEyeCameraMatrix<double> &cam, cv::Point2f p2D, 
+                      cv::Mat &image, Eigen::Vector3d n, double d, double maxDepth, 
+                      Point& p3D);
+
+int main(int argc, char *argv[])
 {
   std::string dataFolder;
 
   boost::program_options::options_description desc("Allowed options");
   desc.add_options()("help", "Produce help message")(
-      "dataFolder", boost::program_options::value<std::string>(&dataFolder)
-                        ->default_value("DataFisheyeCamera/right"),
+      "dataFolder", boost::program_options::value<std::string>(&dataFolder)->default_value("DataFisheyeCamera/right"),
       "One of the data folders for pinhole planesweep provided with the plane "
       "sweep code.");
 
@@ -91,11 +95,12 @@ int main(int argc, char* argv[])
   // read in the calibration
   std::vector<PSL::FishEyeCameraMatrix<double>> cams;
   std::vector<std::vector<double>> dist_coeffs;
+  Eigen::Vector4d plane_in_lidar_frame;
   std::vector<std::string> imageFileNames, freespaceFileNames,
       viewMaskFileNames, stereoMaskFileNames;
 
-  loadData(dataFolder, cams, dist_coeffs, imageFileNames, freespaceFileNames,
-           viewMaskFileNames, stereoMaskFileNames);
+  loadData(dataFolder, cams, dist_coeffs, plane_in_lidar_frame, imageFileNames, 
+           freespaceFileNames, viewMaskFileNames, stereoMaskFileNames);
 
   int numCam = cams.size();
 
@@ -145,8 +150,9 @@ int main(int argc, char* argv[])
     cFEPS.enableSubPixel(false);
 
     double groundDeltaRange = 0.0;
-    double minZ = -groundDeltaRange / 2.0;
-    double maxZ = groundDeltaRange / 2.0;
+    double height = 1.6;
+    double minZ = -groundDeltaRange / 2.0 + height;
+    double maxZ = groundDeltaRange / 2.0 + height;
     cFEPS.setZRange(minZ, maxZ);
 
     double rollRange = 0.0 * M_PI / 180.0;
@@ -203,9 +209,7 @@ int main(int argc, char* argv[])
     int borderWidth = 5;
     cv::Mat borderMask = cv::Mat::zeros(depthMaskF120.rows, depthMaskF120.cols,
                                         depthMaskF120.type());
-    cv::rectangle(borderMask, cv::Rect(borderWidth, borderWidth,
-                                       depthMaskF120.cols - 2 * borderWidth,
-                                       depthMaskF120.rows - 2 * borderWidth),
+    cv::rectangle(borderMask, cv::Rect(borderWidth, borderWidth, depthMaskF120.cols - 2 * borderWidth, depthMaskF120.rows - 2 * borderWidth),
                   cv::Scalar(255), -1);
 
     {
@@ -378,7 +382,7 @@ int main(int argc, char* argv[])
           "fisheyeTestResultsSaic/grayscaleZNCC/NoOcclusionHandling/refImg.png",
           refImage);
       float minDepth = 3.0;
-      float maxDepth = 60.0;
+      float maxDepth = 100.0;
       fEDM.saveInvDepthAsColorImage("fisheyeTestResultsSaic/grayscaleZNCC/"
                                     "NoOcclusionHandling/invDepthCol.png",
                                     minDepth, maxDepth);
@@ -431,12 +435,17 @@ int main(int argc, char* argv[])
       // -- passThrough filter
       pcl::PassThrough<Point> pass;
       pass.setInputCloud(cloud);
+      pass.setFilterFieldName("y");
+      pass.setFilterLimits(0.1, 15.0);
+      pass.filter(*filteredLocalCloud);
+
+      pass.setInputCloud(filteredLocalCloud);
       pass.setFilterFieldName("x");
-      pass.setFilterLimits(0.1, 6.0);
+      pass.setFilterLimits(-10.0, 10.0);
       pass.filter(*filteredLocalCloud);
 
       // estimate local plane
-      pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+      pcl::ModelCoefficients::Ptr coefficientsLocal(new pcl::ModelCoefficients);
       pcl::PointIndices::Ptr planeInliners(new pcl::PointIndices);
       // Create the segmentation object
       pcl::SACSegmentation<Point> seg;
@@ -445,22 +454,22 @@ int main(int argc, char* argv[])
       // Mandatory
       seg.setModelType(pcl::SACMODEL_PLANE);
       seg.setMethodType(pcl::SAC_RANSAC);
-      seg.setDistanceThreshold(0.05);
+      seg.setDistanceThreshold(0.3);
 
       seg.setInputCloud(filteredLocalCloud);
-      seg.segment(*planeInliners, *coefficients);
+      seg.segment(*planeInliners, *coefficientsLocal);
 
       if (planeInliners->indices.size() == 0)
       {
         PCL_ERROR("Could not estimate a planar model for the given dataset.");
         return (-1);
       }
-
-      cout << "Plane coefficients: " << coefficients->values[0] << " "
-           << coefficients->values[1] << " " << coefficients->values[2] << " "
-           << coefficients->values[3] << endl;
-
       cout << "Plane inliers: " << planeInliners->indices.size() << endl;
+
+      cout << "Local plane: " << coefficientsLocal->values[0] << " "
+           << coefficientsLocal->values[1] << " "
+           << coefficientsLocal->values[2] << " "
+           << coefficientsLocal->values[3] << endl;
 
       PointCloud::Ptr localPlaneCloud(new PointCloud());
       for (int i = 0; i < planeInliners->indices.size(); i++)
@@ -493,6 +502,31 @@ int main(int argc, char* argv[])
       std::vector<pcl::ModelCoefficients::Ptr> freespacePlanesCoefficients;
       std::vector<cv::Point2f> validFreespaceBoundaryPoints;
       PointCloud::Ptr freespaceCloud(new PointCloud());
+      PointCloud::Ptr freespaceCloudIPM(new PointCloud());
+      PointCloud::Ptr freespaceCloudAdaptiveIPM(new PointCloud());
+
+      // -- set parameters of the ground plane for IPM and adaptive IPM
+      Eigen::Vector3d n_IPM;
+      n_IPM[0] = plane_in_lidar_frame[0];
+      n_IPM[1] = plane_in_lidar_frame[1];
+      n_IPM[2] = plane_in_lidar_frame[2];
+
+      double d_IPM = plane_in_lidar_frame[3];
+
+      cout << "IPM ground plane: \n" 
+            << "n: " << n_IPM.transpose() << "\n"
+            << "d: " << d_IPM << endl;
+
+      Eigen::Vector3d n_adaptive_IPM;
+      n_adaptive_IPM[0] = coefficientsLocal->values[0];
+      n_adaptive_IPM[1] = coefficientsLocal->values[1];
+      n_adaptive_IPM[2] = coefficientsLocal->values[2];
+
+      double d_adaptive_IPM = coefficientsLocal->values[3];
+
+      cout << "Adaptive IPM ground plane: \n" 
+            << "n: " << n_adaptive_IPM.transpose() << "\n"
+            << "d: " << d_adaptive_IPM << endl;
 
       for (int i = 0; i < freespaceBoundaryPoints.size(); i++)
       {
@@ -546,7 +580,8 @@ int main(int argc, char* argv[])
         if (planeInliners->indices.size() == 0)
         {
           cout << "Warning: Failed to estimate the local plane for freespace "
-                  "boundary point #" << i << endl;
+                  "boundary point #"
+               << i << endl;
           continue;
         }
 
@@ -554,43 +589,39 @@ int main(int argc, char* argv[])
         freespacePlanesCoefficients.push_back(coefficients);
         validFreespaceBoundaryPoints.push_back(queryPoint);
 
-        Eigen::Vector3d n;
-        n[0] = coefficients->values[0];
-        n[1] = coefficients->values[1];
-        n[2] = coefficients->values[2];
+        // unproject to the estimated plane (stereo)
+        {
+          Eigen::Vector3d n;
+          n[0] = coefficients->values[0];
+          n[1] = coefficients->values[1];
+          n[2] = coefficients->values[2];
 
-        double d = coefficients->values[3];
+          double d = coefficients->values[3];
 
-        // compute boundary point's position
-        Eigen::Vector3d pointRay;
-        pointRay =
-            fEDM.getCam().unprojectPointToRay(queryPoint.x, queryPoint.y);
+          // unproject and add to cloud
+          Point pt;
+          if (unprojectToPlane(fEDM.getCam(), queryPoint, refImage, 
+                               n, d, maxDepth, pt))
+            freespaceCloud->points.push_back(pt);
+        }
 
-        Eigen::Matrix3d R;
-        R = fEDM.getCam().getR();
-        Eigen::Vector3d t;
-        t = fEDM.getCam().getT();
+        // unproject to the ground plane (IPM)
+        {
+          // unproject and add to cloud
+          Point pt;
+          if (unprojectToPlane(fEDM.getCam(), queryPoint, refImage, 
+                               n_IPM, d_IPM, maxDepth, pt))
+            freespaceCloudIPM->points.push_back(pt);
+        }
 
-        double scaleFactor = (-d + (n.transpose() * R.transpose() * t)[0]) /
-                             (n.transpose() * R.transpose() * pointRay)[0];
-        pointRay *= scaleFactor;
-
-        Eigen::Vector4d point;
-        point = fEDM.getCam().localPointToGlobal(pointRay[0], pointRay[1],
-                                                 pointRay[2]);
-
-        // add to cloud
-        Point pt;
-        pt.x = point[0];
-        pt.y = point[1];
-        pt.z = point[2];
-
-        cv::Vec3b pixel = refImage.at<cv::Vec3b>(queryPoint);
-        pt.b = pixel[0];
-        pt.g = pixel[1];
-        pt.r = pixel[2];
-
-        freespaceCloud->points.push_back(pt);
+        // unproject to the estiated local ground plane (adaptive IPM)
+        {
+          // unproject and add to cloud
+          Point pt;
+          if (unprojectToPlane(fEDM.getCam(), queryPoint, refImage, 
+                               n_adaptive_IPM, d_adaptive_IPM, maxDepth, pt))
+            freespaceCloudAdaptiveIPM->points.push_back(pt);
+        }
       }
 
       cout << "Valid freespace points num: " << freespaceCloud->points.size()
@@ -608,21 +639,33 @@ int main(int argc, char* argv[])
       std::string freespaceCloudFile =
           "fisheyeTestResultsSaic/grayscaleZNCC/"
           "NoOcclusionHandling/pointCloudFreespace.ply";
+      std::string freespaceCloudIPMFile =
+          "fisheyeTestResultsSaic/grayscaleZNCC/"
+          "NoOcclusionHandling/pointCloudFreespaceIPM.ply";
+      std::string freespaceCloudAdaptiveIPMFile =
+          "fisheyeTestResultsSaic/grayscaleZNCC/"
+          "NoOcclusionHandling/pointCloudFreespaceAdaptiveIPM.ply";
 
       pcl::PLYWriter writer;
       writer.write(pointCloudFile, *cloud, true);
       writer.write(localPointCloudFile, *filteredLocalCloud, true);
       writer.write(localPlaneCloudFile, *localPlaneCloud, true);
       writer.write(freespaceCloudFile, *freespaceCloud, true);
+      writer.write(freespaceCloudIPMFile, *freespaceCloudIPM, true);
+      writer.write(freespaceCloudAdaptiveIPMFile, *freespaceCloudAdaptiveIPM,
+                   true);
 
       // point cloud visualization
-      bool showPointCloud = true;
+      bool showPointCloud = false;
 
       if (showPointCloud)
       {
         pcl::visualization::PCLVisualizer vis("vis");
         vis.addPointCloud(localPlaneCloud, "localPlaneCloud");
         vis.addPointCloud(freespaceCloud, "freespaceCloud");
+        vis.addPointCloud(freespaceCloudIPM, "freespaceCloudIPM");
+        vis.addPointCloud(freespaceCloudAdaptiveIPM,
+                          "freespaceCloudAdaptiveIPM");
 
         vis.spin();
       }
@@ -631,12 +674,13 @@ int main(int argc, char* argv[])
 }
 
 void loadData(std::string dataFolder,
-              std::vector<PSL::FishEyeCameraMatrix<double>>& cams,
-              std::vector<std::vector<double>>& dist_coeffs,
-              std::vector<std::string>& imageFileNames,
-              std::vector<std::string>& freespaceFileNames,
-              std::vector<std::string>& viewMaskFileNames,
-              std::vector<std::string>& stereoMaskFileNames)
+              std::vector<PSL::FishEyeCameraMatrix<double>> &cams,
+              std::vector<std::vector<double>> &dist_coeffs,
+              Eigen::Vector4d &plane_in_lidar_frame,
+              std::vector<std::string> &imageFileNames,
+              std::vector<std::string> &freespaceFileNames,
+              std::vector<std::string> &viewMaskFileNames,
+              std::vector<std::string> &stereoMaskFileNames)
 {
   std::string calibFileName = dataFolder + "/calib.txt";
 
@@ -648,14 +692,18 @@ void loadData(std::string dataFolder,
     PSL_THROW_EXCEPTION("Error opening calibration file calib.txt.")
   }
 
+  std::string desc;
+
   int numCam;
-  calibrationStr >> numCam;
+  calibrationStr >> desc >> numCam;
 
   for (unsigned int i = 0; i < numCam; i++)
   {
     Eigen::Matrix3d K = Eigen::Matrix3d::Identity();
     double xi;
     std::vector<double> dist_coeff(4);
+
+    calibrationStr >> desc;
 
     // intrinsic calibration and distortion parameters
     calibrationStr >> K(0, 0) >> K(0, 1) >> K(0, 2);
@@ -673,12 +721,42 @@ void loadData(std::string dataFolder,
         Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
         Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
 
-    Eigen::Vector3d C(t_x, t_y, t_z);
+    Eigen::Vector3d t(t_x, t_y, t_z);
 
     cams.push_back(PSL::FishEyeCameraMatrix<double>(K, R.transpose(),
-                                                    -R.transpose() * C, xi));
+                                                    -R.transpose() * t, xi));
     dist_coeffs.push_back(dist_coeff);
   }
+
+  // load tranformation from camera to vehicle (used for IPM with ground plane)
+  int selected_cam_index;
+  calibrationStr >> desc >> selected_cam_index;
+
+  double roll, pitch, yaw, t_x, t_y, t_z;
+  calibrationStr >> desc >> roll >> pitch >> yaw >> t_x >> t_y >> t_z;
+  Eigen::Matrix3d R_cam2vehicle;
+  R_cam2vehicle = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()) *
+                  Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+                  Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX());
+
+  Eigen::Vector3d t_cam2vehicle(t_x, t_y, t_z);
+
+  Eigen::Matrix4d T_cam2vehicle = Eigen::Matrix4d::Identity();
+  T_cam2vehicle.topLeftCorner(3, 3) = R_cam2vehicle;
+  T_cam2vehicle.topRightCorner(3, 1) = t_cam2vehicle;
+
+  // -- get transformation from vehicle to lidar
+  Eigen::Matrix4d T_lidar2cam = Eigen::Matrix4d::Identity();
+  T_lidar2cam.topLeftCorner(3, 3) = cams[selected_cam_index].getR();
+  T_lidar2cam.topRightCorner(3, 1) = cams[selected_cam_index].getT();
+
+  Eigen::Matrix4d T_vehicle2lidar = T_lidar2cam.inverse() * T_cam2vehicle.inverse();
+
+  // -- transform the ground plane vehicle frame to lidar frame
+  // ref: https://math.stackexchange.com/questions/2502857/transform-plane-to-another-coordinate-system
+  Eigen::Vector4d plane_in_vehicle_frame;
+  plane_in_vehicle_frame << 0, 0, 1, 0;
+  plane_in_lidar_frame = T_vehicle2lidar.inverse().transpose() * plane_in_vehicle_frame;
 
   // now load the image filenames
   std::string imageListFile = dataFolder + "/images.txt";
@@ -780,7 +858,7 @@ void loadData(std::string dataFolder,
   }
 }
 
-void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
+void erodeMask(cv::Mat &inMask, int kernelSize, cv::Mat &outMask)
 {
   outMask = inMask.clone();
 
@@ -790,7 +868,7 @@ void erodeMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
   cv::morphologyEx(inMask, outMask, cv::MORPH_ERODE, element);
 }
 
-void dilateMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
+void dilateMask(cv::Mat &inMask, int kernelSize, cv::Mat &outMask)
 {
   outMask = inMask.clone();
 
@@ -798,4 +876,53 @@ void dilateMask(cv::Mat& inMask, int kernelSize, cv::Mat& outMask)
       cv::MORPH_ELLIPSE, cv::Size(2 * kernelSize + 1, 2 * kernelSize + 1));
 
   cv::morphologyEx(inMask, outMask, cv::MORPH_DILATE, element);
+}
+
+bool unprojectToPlane(const PSL::FishEyeCameraMatrix<double> &cam, cv::Point2f p2D, 
+                      cv::Mat &image, Eigen::Vector3d n, double d, double maxDepth, 
+                      Point& p3D)
+{
+  // compute point's 3D position
+  Eigen::Vector3d pointRay;
+  pointRay =
+      cam.unprojectPointToRay(p2D.x, p2D.y);
+
+  Eigen::Matrix3d R;
+  R = cam.getR();
+  Eigen::Vector3d t;
+  t = cam.getT();
+
+  double scaleFactor = (-d + (n.transpose() * R.transpose() * t)[0]) /
+                        (n.transpose() * R.transpose() * pointRay)[0];
+  pointRay *= scaleFactor;
+
+  // check if the unprojection is valid
+  if (scaleFactor < 0 || pointRay[2] > maxDepth)
+    return false;
+
+  Eigen::Vector4d point;
+  point = cam.localPointToGlobal(pointRay[0], pointRay[1],
+                                            pointRay[2]);
+
+  // output the 3D point with color
+  p3D.x = point[0];
+  p3D.y = point[1];
+  p3D.z = point[2];
+
+  if (image.channels() == 3)
+  {
+    cv::Vec3b pixel = image.at<cv::Vec3b>(p2D);
+    p3D.b = pixel[0];
+    p3D.g = pixel[1];
+    p3D.r = pixel[2];
+  }
+  else if (image.channels() == 1)
+  {
+    uchar pixel = image.at<uchar>(p2D);
+    p3D.b = pixel;
+    p3D.g = pixel;
+    p3D.r = pixel;
+  }
+
+  return true;
 }
