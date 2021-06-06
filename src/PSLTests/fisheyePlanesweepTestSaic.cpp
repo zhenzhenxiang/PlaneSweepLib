@@ -297,12 +297,16 @@ int main(int argc, char *argv[])
         }
       cv::imshow("Best Planes Index", bestPlanesImage);
 
+      ofstream planes_number_output("fisheyeTestResultsSaic/grayscaleZNCC/NoOcclusionHandling/planes_number.txt");
+      for (auto num : countPlanes)
+        planes_number_output << num << endl;
+
       // find the consecutive planes that contain the ground plane
       // -- find the plane with maximum pixels
-      int planeNumThreshold = 500;
+      int planeNumThreshold = 1000;
       int maxPlaneNumInd = -1;
       int maxPlaneNum = 0;
-      for (int i = 0; i < numPlanes; i++)
+      for (int i = 1; i < numPlanes - 1; i++)
       {
         int cnt = countPlanes[i];
         if (cnt > planeNumThreshold && cnt > maxPlaneNum)
